@@ -3,6 +3,17 @@ import express from 'express';
 import crypto from 'crypto';
 import { processWebhook } from './bot/processor.js';
 
+// Log startup
+console.log('[Startup] Initializing Roadmapr Bot...');
+console.log('[Startup] Node.js version:', process.version);
+console.log('[Startup] Environment variables loaded:', {
+  SUPABASE_URL: !!process.env.SUPABASE_URL,
+  SUPABASE_SERVICE_KEY: !!process.env.SUPABASE_SERVICE_KEY,
+  NEYNAR_API_KEY: !!process.env.NEYNAR_API_KEY,
+  GLM_API_KEY: !!process.env.GLM_API_KEY,
+  PORT: process.env.PORT
+});
+
 const app = express();
 app.use(express.json());
 
@@ -81,10 +92,27 @@ app.post('/trigger', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(`Roadmapr Bot listening on port ${PORT}`);
-  console.log('Endpoints:');
+const server = app.listen(PORT, () => {
+  console.log(`[Startup] ✅ Roadmapr Bot listening on port ${PORT}`);
+  console.log('[Startup] Endpoints:');
   console.log(`  GET  /health - Health check`);
   console.log(`  POST /webhook/mention - Neynar webhook`);
   console.log(`  POST /trigger - Manual trigger (testing)`);
+});
+
+// Handle server errors
+server.on('error', (err: any) => {
+  console.error('[Startup] ❌ Server error:', err);
+  process.exit(1);
+});
+
+// Log unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('[Startup] ❌ Uncaught exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('[Startup] ❌ Unhandled rejection:', err);
+  process.exit(1);
 });
