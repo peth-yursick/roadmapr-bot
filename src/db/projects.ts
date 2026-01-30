@@ -83,7 +83,7 @@ export async function getAllProjects(): Promise<Project[]> {
     .order('name');
 
   if (error) {
-    console.error('Failed to get projects:', error);
+    console.error('[DB] Failed to get projects:', error.message);
     return [];
   }
 

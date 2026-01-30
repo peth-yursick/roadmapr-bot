@@ -51,7 +51,7 @@ export async function processWebhook(webhookData: WebhookData) {
   const author_fid = data.author?.fid;
   const parent_hash = data.parent_hash;
 
-  console.log(`[Processor] Processing webhook: cast=${cast_hash}, author=${author_fid}, parent=${parent_hash}`);
+  console.log(`[Processor] Processing cast ${cast_hash?.slice(0, 8)}... by FID ${author_fid}`);
 
   if (!cast_hash || !author_fid) {
     console.error('[Processor] Missing required fields in webhook data');
@@ -120,8 +120,7 @@ export async function processWebhook(webhookData: WebhookData) {
   const detectedProjects = await detectProjects(fullContext, parentCast);
   const newProjectCandidates = await detectNewProjects(fullContext);
 
-  console.log(`[Processor] Detected projects: ${detectedProjects.join(', ') || 'none'}`);
-  console.log(`[Processor] New project candidates: ${newProjectCandidates.join(', ') || 'none'}`);
+  console.log(`[Processor] Projects: ${detectedProjects.join(',') || 'none'}, New: ${newProjectCandidates.join(',') || 'none'}`);
 
   // If no existing projects detected, check if they want to create a new one
   if (detectedProjects.length === 0) {
