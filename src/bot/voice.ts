@@ -127,11 +127,11 @@ export const BotVoice = {
   newProjectDetected: (candidates: string[]) =>
     `🆕 NEW PROJECT ALERT! ${candidates.map(c => `@${c}`).join(' and ')}!\n\n` +
     `Let's get you set up! Reply with:\n\n` +
-    `• Owner FID (your Farcaster ID)\n` +
-    `• Token address (or "clanker" for default)\n` +
-    `• Short bio (what's this project about?)\n\n` +
+    `• Owner FID (your Farcaster ID number)\n` +
+    `• Token address (or "clanker" for default)\n\n` +
     `Example:\n` +
-    `"Owner: 12345, Token: clanker, Bio: Building cool stuff"\n\n` +
+    `"Owner: 2513548, Token: clanker"\n\n` +
+    `I'll grab your profile bio automatically! 📝\n\n` +
     `Let's make it happen! 💪`,
 
   noFeatureExtracted: () =>
