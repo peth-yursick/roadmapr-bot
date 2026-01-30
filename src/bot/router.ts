@@ -47,11 +47,29 @@ export async function detectProjects(text: string, cast: Cast): Promise<string[]
   }
 
   // Method 4: Look for project names mentioned (not just handles)
+  // Enhanced to catch variations like "base", "Base", "for base", "for Base", etc.
   const lowerText = text.toLowerCase();
   for (const project of allProjects) {
     const projectName = project.name.toLowerCase();
-    if (lowerText.includes(projectName) && projectName.length > 3) {
-      detectedHandles.add(project.project_handle);
+    const projectHandle = project.project_handle.toLowerCase();
+
+    // Check for project name or handle with word boundaries
+    const namePatterns = [
+      `\\b${projectName}\\b`,  // exact word match
+      `\\b${projectHandle}\\b`, // exact handle match
+      `for\\s+${projectName}\\b`,
+      `for\\s+${projectHandle}\\b`,
+      `on\\s+${projectName}\\b`,
+      `on\\s+${projectHandle}\\b`,
+      `about\\s+${projectName}\\b`,
+      `about\\s+${projectHandle}\\b`
+    ];
+
+    for (const pattern of namePatterns) {
+      if (lowerText.match(new RegExp(pattern, 'i')) && projectName.length > 2) {
+        detectedHandles.add(project.project_handle);
+        break; // Found this project, no need to check other patterns
+      }
     }
   }
 

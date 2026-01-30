@@ -138,8 +138,14 @@ export async function processWebhook(webhookData: WebhookData) {
       });
       return;
     } else {
+      // No projects detected - ask for clarification
       await postReply(cast_hash,
-        "Which project is this about? Mention the project handle (e.g., @base) or say 'for @project'"
+        "🤔 I couldn't figure out which project this is for.\n\n" +
+        "You can:\n" +
+        "• Mention the project: @roadmapr for @projectname\n" +
+        "• Use the project name: @roadmapr for Base\n" +
+        "• Or just tag me in any reply and I'll ask which project!\n\n" +
+        "What project should this feature go to?"
       );
       await logBotMention(cast_hash, author_fid, parent_hash, {
         parent_cast_author_fid: parentCast.author.fid,
@@ -161,13 +167,34 @@ export async function processWebhook(webhookData: WebhookData) {
 
   if (projects.length === 0) {
     await postReply(cast_hash,
-      "Couldn't find those projects. Make sure to use the exact project handle."
+      "❌ Couldn't find that project in the database.\n\n" +
+      "Make sure the project exists. You can:\n" +
+      "• Use the exact project handle: @base\n" +
+      "• Or create a new project by mentioning it\n\n" +
+      "Want to create a new project?"
     );
     await logBotMention(cast_hash, author_fid, parent_hash, {
       parent_cast_author_fid: parentCast.author.fid,
       parent_cast_text: parentCast.text,
       detected_projects: detectedProjects,
       error: 'Projects not found in database'
+    });
+    return;
+  }
+
+  // If multiple projects detected, ask for clarification
+  if (projects.length > 1) {
+    const projectList = projects.map(p => `• @${p.project_handle} (${p.name})`).join('\n');
+    await postReply(cast_hash,
+      `🤔 I found multiple projects. Which one should I add this to?\n\n${projectList}\n\n` +
+      `Reply with the project name to confirm!`
+    );
+    await logBotMention(cast_hash, author_fid, parent_hash, {
+      parent_cast_author_fid: parentCast.author.fid,
+      parent_cast_text: parentCast.text,
+      detected_projects: detectedProjects,
+      projects_found: projects.map(p => p.project_handle),
+      error: 'Multiple projects detected'
     });
     return;
   }
@@ -180,7 +207,12 @@ export async function processWebhook(webhookData: WebhookData) {
 
   if (extracted.length === 0) {
     await postReply(cast_hash,
-      "Couldn't find actionable feedback. Try describing specific bugs or features."
+      "🤖 I couldn't extract a clear feature request from that.\n\n" +
+      "Try describing:\n" +
+      "• A specific feature: \"Add dark mode\"\n" +
+      "• A bug: \"Fix login not working\"\n" +
+      "• An improvement: \"Make the button bigger\"\n\n" +
+      "Want to add this to a project? Just reply with more details!"
     );
     await logBotMention(cast_hash, author_fid, parent_hash, {
       parent_cast_author_fid: parentCast.author.fid,
