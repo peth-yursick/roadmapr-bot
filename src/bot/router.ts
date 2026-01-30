@@ -8,12 +8,32 @@ export async function detectProjects(text: string, cast: Cast): Promise<string[]
   const allProjects = await getAllProjects();
   const projectHandles = new Set(allProjects.map(p => p.project_handle.toLowerCase()));
 
-  // Method 1: Direct @mentions in text
+  // Count mentions to handle multiple occurrences (e.g., @roadmapr for @roadmapr)
   const mentions = text.match(/@(\w+)/g) || [];
+  const mentionCounts = new Map<string, number>();
+
   for (const mention of mentions) {
     const handle = mention.slice(1).toLowerCase();
-    // Filter out the bot mention and common non-project mentions
-    if (handle !== 'roadmapr' && handle.length > 2) {
+    mentionCounts.set(handle, (mentionCounts.get(handle) || 0) + 1);
+  }
+
+  // Method 1: Direct @mentions in text
+  for (const mention of mentions) {
+    const handle = mention.slice(1).toLowerCase();
+
+    // Special handling for @roadmapr:
+    // - If mentioned once, it's likely the bot mention
+    // - If mentioned twice+, the second is the project target
+    const isBotMention = handle === 'roadmapr';
+    const mentionCount = mentionCounts.get(handle) || 0;
+
+    if (isBotMention) {
+      // Only add roadmapr as a project if mentioned multiple times
+      // or if it's an existing project in the database
+      if (mentionCount > 1 && projectHandles.has(handle)) {
+        detectedHandles.add(handle);
+      }
+    } else if (handle.length > 2) {
       // Only add if it's a known project
       if (projectHandles.has(handle)) {
         detectedHandles.add(handle);
@@ -23,7 +43,7 @@ export async function detectProjects(text: string, cast: Cast): Promise<string[]
 
   // Method 2: "for @project" or "on @project" patterns
   const patterns = [
-    /(?:for|on|about|regarding)\s+@(\w+)/gi,
+    /(?:for|on|about|regarding|to|add\s+.*?to)\s+@(\w+)/gi,
     /@(\w+)\s+(?:needs|should|must|could)/gi,
     /(?:the|this)\s+@(\w+)/gi
   ];
@@ -32,7 +52,10 @@ export async function detectProjects(text: string, cast: Cast): Promise<string[]
     const matches = [...text.matchAll(pattern)];
     for (const match of matches) {
       const handle = match[1].toLowerCase();
-      if (projectHandles.has(handle)) {
+      // Special case: allow "to @roadmapr" or "for @roadmapr" patterns
+      if (handle === 'roadmapr' && projectHandles.has(handle)) {
+        detectedHandles.add(handle);
+      } else if (projectHandles.has(handle)) {
         detectedHandles.add(handle);
       }
     }
