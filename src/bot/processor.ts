@@ -175,13 +175,17 @@ export async function processWebhook(webhookData: WebhookData) {
     const currentCastText = await getCastText(cast_hash);
     const setupInfo = parseProjectSetupReply(currentCastText);
 
-    if (setupInfo.owner && setupInfo.token) {
-      console.log(`[Processor] Project setup reply detected: owner=${setupInfo.owner}, token=${setupInfo.token}`);
-
+    // Check if project handle is provided in the reply or extract from thread
+    let projectHandle: string | null = setupInfo.project || null;
+    if (!projectHandle) {
       // Extract project handle from conversation context (look for "NEW PROJECT ALERT! @handle")
-      const projectHandle = extractProjectHandleFromThreadContext(
-        isReplyToBot ? await getCastThread(parent_hash) : []
+      projectHandle = extractProjectHandleFromThreadContext(
+        await getCastThread(parent_hash)
       );
+    }
+
+    if (setupInfo.owner && projectHandle) {
+      console.log(`[Processor] Project setup reply detected: project=@${projectHandle}, owner=${setupInfo.owner}, token=${setupInfo.token || 'clanker'}`);
 
       if (projectHandle) {
         console.log(`[Processor] Creating project: @${projectHandle}`);
@@ -201,8 +205,9 @@ export async function processWebhook(webhookData: WebhookData) {
         console.log(`[Processor] Bio for @${projectHandle}: ${bioResult ? 'found' : 'not found'}`);
 
         // Determine voting type and token address
-        const voting_type: 'score' | 'token' = setupInfo.token.toLowerCase() === 'clanker' ? 'token' : 'score';
-        const isClanker = setupInfo.token.toLowerCase() === 'clanker';
+        const tokenInput = (setupInfo.token || 'clanker').toLowerCase();
+        const voting_type: 'score' | 'token' = tokenInput === 'clanker' ? 'token' : 'score';
+        const isClanker = tokenInput === 'clanker';
         const token_address = isClanker ? undefined : setupInfo.token;
 
         // Create project

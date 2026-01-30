@@ -48,27 +48,39 @@ export async function parseOwner(ownerInput: string): Promise<ParsedOwner | null
 }
 
 /**
- * Extract owner and token from a reply text
+ * Extract project handle, owner and token from a reply text
  * Supports formats like:
- * "Owner: @peth, Token: clanker"
+ * "Project: @roadmapr, Owner: @peth, Token: clanker"
+ * "project is @roadmapr, owner is @roadmapr, will define token later"
  * "Owner: 12345, Token: 0x1234..."
  */
 export function parseProjectSetupReply(text: string): {
+  project?: string;
   owner?: string;
   token?: string;
 } {
-  const result: { owner?: string; token?: string } = {};
+  const result: { project?: string; owner?: string; token?: string } = {};
+
+  // Extract project handle (supports "project is @handle", "project: @handle", etc.)
+  const projectMatch = text.match(/project[:\s]+is[:\s]+@(\w+)|project[:\s]+@(\w+)/i);
+  if (projectMatch) {
+    result.project = projectMatch[1] || projectMatch[2];
+  }
 
   // Extract owner
-  const ownerMatch = text.match(/owner[:\s]+(@?\w+|@?\d+)/i);
+  const ownerMatch = text.match(/owner[:\s]+is[:\s]+(@?\w+|@?\d+)|owner[:\s]+(@?\w+|@?\d+)/i);
   if (ownerMatch) {
-    result.owner = ownerMatch[1].trim();
+    result.owner = ownerMatch[1] || ownerMatch[2];
+    result.owner = result.owner.trim();
   }
 
   // Extract token
-  const tokenMatch = text.match(/token[:\s]+(\w+)/i);
+  const tokenMatch = text.match(/token[:\s]+is[:\s]+(\w+)|token[:\s]+(\w+)|will define token later/i);
   if (tokenMatch) {
-    result.token = tokenMatch[1].trim();
+    result.token = tokenMatch[1] || tokenMatch[2] || "clanker";
+    if (result.token) {
+      result.token = result.token.trim();
+    }
   }
 
   return result;
