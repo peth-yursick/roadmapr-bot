@@ -1,14 +1,19 @@
-import { getUser } from '../neynar/client.js';
+import { getUser, lookupUserByUsername } from '../neynar/client.js';
 
 export interface ParsedOwner {
   fid: number;
   username: string;
-  bio: string;
+}
+
+export interface ParsedProjectInfo {
+  owner: ParsedOwner;
+  token: string;
+  bio?: string;
+  needsBio: boolean;
 }
 
 /**
  * Parse owner from username or FID
- * Returns user info including their bio
  */
 export async function parseOwner(ownerInput: string): Promise<ParsedOwner | null> {
   const input = ownerInput.trim();
@@ -22,8 +27,7 @@ export async function parseOwner(ownerInput: string): Promise<ParsedOwner | null
 
     return {
       fid,
-      username: user.username,
-      bio: user.profile?.bio?.text || ''
+      username: user.username
     };
   }
 
@@ -31,18 +35,20 @@ export async function parseOwner(ownerInput: string): Promise<ParsedOwner | null
   const usernameMatch = input.match(/^@?(\w+)$/);
   if (usernameMatch) {
     const username = usernameMatch[1];
+    const user = await lookupUserByUsername(username);
+    if (!user) return null;
 
-    // Need to search by username - this requires Neyar's user search API
-    // For now, return null and the calling code should handle this
-    // TODO: Implement username search when needed
-    return null;
+    return {
+      fid: user.fid,
+      username: user.username
+    };
   }
 
   return null;
 }
 
 /**
- * Extract owner, token, and bio from a reply text
+ * Extract owner and token from a reply text
  * Supports formats like:
  * "Owner: @peth, Token: clanker"
  * "Owner: 12345, Token: 0x1234..."
@@ -66,4 +72,20 @@ export function parseProjectSetupReply(text: string): {
   }
 
   return result;
+}
+
+/**
+ * Get project bio from the project's Farcaster profile
+ */
+export async function getProjectBio(projectHandle: string): Promise<string | null> {
+  try {
+    const user = await lookupUserByUsername(projectHandle);
+    if (user?.profile?.bio?.text) {
+      return user.profile.bio.text;
+    }
+    return null;
+  } catch (err) {
+    console.error(`[Helpers] Failed to get bio for @${projectHandle}:`, err);
+    return null;
+  }
 }

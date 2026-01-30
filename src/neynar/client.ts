@@ -173,9 +173,55 @@ export async function getUser(fid: number) {
       display_name: user.display_name || user.username,
       pfp_url: user.pfp_url || '',
       score: (user as any)?.experimental?.neynar_user_score || 0,
+      profile: user.profile,
     };
   } catch (err) {
     console.error('Get user error:', err);
+    return null;
+  }
+}
+
+/**
+ * Look up a user by their username
+ * Uses Neynar's v2 API to search for users
+ */
+export async function lookupUserByUsername(username: string) {
+  try {
+    // Use the v2 API to look up user by username
+    const response = await fetch(
+      `https://api.neynar.com/v2/farcaster/user/bulk?fids=${username}`,
+      {
+        headers: {
+          'api_key': process.env.NEYNAR_API_KEY || '',
+          'accept': 'application/json'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+
+    // Try to find user by username in the response
+    const users = (data as any)?.users || [];
+    const user = users.find((u: any) => u.username.toLowerCase() === username.toLowerCase());
+
+    if (!user) {
+      return null;
+    }
+
+    return {
+      fid: user.fid,
+      username: user.username,
+      display_name: user.display_name || user.username,
+      pfp_url: user.pfp_url || '',
+      score: user.score || (user as any)?.experimental?.neynar_user_score || 0,
+      profile: user.profile,
+    };
+  } catch (err) {
+    console.error('Lookup user by username error:', err);
     return null;
   }
 }
