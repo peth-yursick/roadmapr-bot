@@ -139,18 +139,19 @@ export const BotVoice = {
   noFeatureExtracted: () =>
     `${confused()}\n\n` +
     `🤖 I'm reading... I'm reading...\n\n` +
-    `BUT I CAN'T FIND A FEATURE!\n\n` +
-    `Make sure you're replying to the CAST with the feature request,\n` +
-    `not to my message!\n\n` +
-    `Correct way:\n` +
-    `1. Someone posts: "Add dark mode"\n` +
-    `2. You reply to THAT post: "@roadmapr for @project"\n\n` +
-    `Help me out! Be more SPECIFIC:\n` +
+    `BUT I CAN'T FIND A CLEAR FEATURE!\n\n` +
+    `Try being more SPECIFIC:\n` +
     `• "Add dark mode" ✅\n` +
     `• "Fix login bug" ✅\n` +
-    `• "Make button bigger" ✅\n\n` +
+    `• "Make button bigger" ✅\n` +
+    `• "Add search to homepage" ✅\n\n` +
     `❌ "This sucks" - too vague!\n` +
-    `❌ "Fix it" - fix what?!\n\n` +
+    `❌ "Fix it" - fix what?!\n` +
+    `❌ "An issue" - what issue?!\n\n` +
+    `I can work with:\n` +
+    `• Direct requests: "@roadmapr add dark mode"\n` +
+    `• Thread replies: Reply to feedback with "@roadmapr for @project"\n` +
+    `• Quotes: @roadmapr can you add "dark mode support"?\n\n` +
     `Give me DETAILS, human!`,
 
   ownerNotFound: (owner: string) =>

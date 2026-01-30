@@ -126,6 +126,9 @@ export async function processWebhook(webhookData: WebhookData) {
   let fullContext: string;
   let contextCastCount: number;
 
+  // Get current cast text (might contain the feature request)
+  const currentCastText = await getCastText(cast_hash);
+
   if (isReplyToBot) {
     console.log(`[Processor] Reply to bot detected - gathering conversation context`);
     // Get the full conversation thread leading to this reply
@@ -136,7 +139,7 @@ export async function processWebhook(webhookData: WebhookData) {
     fullContext = [
       ...threadTexts,
       parentCast.text,
-      `Reply: ${await getCastText(cast_hash)}`
+      `Reply: ${currentCastText}`
     ].join('\n\n---\n\n');
 
     contextCastCount = thread.length + 2;
@@ -144,12 +147,25 @@ export async function processWebhook(webhookData: WebhookData) {
   } else {
     // Normal flow: just parent cast and its thread
     const thread = await getCastThread(parent_hash);
-    fullContext = [
-      parentCast.text,
-      ...thread.map(c => c.text)
-    ].join('\n\n---\n\n');
 
-    contextCastCount = thread.length + 1;
+    // If current cast looks like a direct feature request, include it at the start
+    const hasFeatureInCurrentCast = /^(add|create|implement|build|make|we need)/i.test(currentCastText);
+
+    if (hasFeatureInCurrentCast) {
+      console.log(`[Processor] Direct feature request detected in current cast`);
+      fullContext = [
+        currentCastText,
+        parentCast.text,
+        ...thread.map(c => c.text)
+      ].join('\n\n---\n\n');
+      contextCastCount = thread.length + 2;
+    } else {
+      fullContext = [
+        parentCast.text,
+        ...thread.map(c => c.text)
+      ].join('\n\n---\n\n');
+      contextCastCount = thread.length + 1;
+    }
   }
 
   console.log(`[Processor] Context length: ${fullContext.length} chars (${contextCastCount} casts)`);
