@@ -58,9 +58,12 @@ export async function processWebhook(webhookData: WebhookData) {
     return;
   }
 
-  // Ignore bot's own casts (prevent loops)
+  // Check if this is a reply to the bot itself
   const BOT_FID = parseInt(process.env.ROADMAPR_BOT_FID || '0');
-  if (author_fid === BOT_FID) {
+  const isReplyToBot = parent_hash && await isReplyToBotCast(parent_hash, BOT_FID);
+
+  // Ignore bot's own casts (prevent loops)
+  if (author_fid === BOT_FID && !isReplyToBot) {
     console.log(`[Processor] Ignoring bot's own cast`);
     return;
   }
@@ -114,14 +117,37 @@ export async function processWebhook(webhookData: WebhookData) {
 
   console.log(`[Processor] Parent cast: ${parentCast.hash} by @${parentCast.author.username}`);
 
-  // Get thread context for better extraction
-  const thread = await getCastThread(parent_hash);
-  const fullContext = [
-    parentCast.text,
-    ...thread.map(c => c.text)
-  ].join('\n\n---\n\n');
+  // Check if this is a reply to the bot - if so, get full conversation context
+  let fullContext: string;
+  let contextCastCount: number;
 
-  console.log(`[Processor] Context length: ${fullContext.length} chars (${thread.length + 1} casts)`);
+  if (isReplyToBot) {
+    console.log(`[Processor] Reply to bot detected - gathering conversation context`);
+    // Get the full conversation thread leading to this reply
+    const thread = await getCastThread(parent_hash);
+
+    // Build context from the thread (oldest to newest)
+    const threadTexts = thread.map(c => c.text).reverse();
+    fullContext = [
+      ...threadTexts,
+      parentCast.text,
+      `Reply: ${await getCastText(cast_hash)}`
+    ].join('\n\n---\n\n');
+
+    contextCastCount = thread.length + 2;
+    console.log(`[Processor] Conversation context: ${contextCastCount} messages`);
+  } else {
+    // Normal flow: just parent cast and its thread
+    const thread = await getCastThread(parent_hash);
+    fullContext = [
+      parentCast.text,
+      ...thread.map(c => c.text)
+    ].join('\n\n---\n\n');
+
+    contextCastCount = thread.length + 1;
+  }
+
+  console.log(`[Processor] Context length: ${fullContext.length} chars (${contextCastCount} casts)`);
 
   // Detect projects mentioned
   const detectedProjects = await detectProjects(fullContext, parentCast);
@@ -399,4 +425,20 @@ function formatStandaloneCast(
     `👤 Suggested by @${username}\n` +
     `🗳️ Vote: roadmapr.xyz/features/${feature.id}\n\n` +
     `Make your voice heard! 📢`;
+}
+
+/**
+ * Check if a cast is authored by the bot
+ */
+async function isReplyToBotCast(castHash: string, botFid: number): Promise<boolean> {
+  const cast = await getCast(castHash);
+  return cast?.author?.fid === botFid;
+}
+
+/**
+ * Get the text content of a cast
+ */
+async function getCastText(castHash: string): Promise<string> {
+  const cast = await getCast(castHash);
+  return cast?.text || '';
 }

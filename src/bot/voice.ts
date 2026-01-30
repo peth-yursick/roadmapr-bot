@@ -77,13 +77,13 @@ export const BotVoice = {
   // Error/clarification messages
   noParentCast: () =>
     `${confused()}\n\n` +
-    `⚠️ WHOOPS! I need a cast to work with!\n\n` +
-    `Reply to a cast with your feedback and tag me!\n` +
-    `I'll read the PARENT cast (the one you're replying to)\n\n` +
+    `⚠️ WHOOPS! I need something to work with!\n\n` +
+    `Reply to a cast with feedback and I'll add it!\n\n` +
     `Example:\n` +
     `👤 Someone: "I wish there was dark mode"\n` +
     `🤖 You: "@roadmapr for base"\n` +
-    `💥 BOOM! Feature added!`,
+    `💥 BOOM! Feature added!\n\n` +
+    `Or reply to me if I ask for more info!`,
 
   rateLimited: () =>
     `😱 SLOW DOWN THERE, SPEED DEMON!\n\n` +
@@ -140,14 +140,18 @@ export const BotVoice = {
     `${confused()}\n\n` +
     `🤖 I'm reading... I'm reading...\n\n` +
     `BUT I CAN'T FIND A FEATURE!\n\n` +
+    `Make sure you're replying to the CAST with the feature request,\n` +
+    `not to my message!\n\n` +
+    `Correct way:\n` +
+    `1. Someone posts: "Add dark mode"\n` +
+    `2. You reply to THAT post: "@roadmapr for @project"\n\n` +
     `Help me out! Be more SPECIFIC:\n` +
     `• "Add dark mode" ✅\n` +
     `• "Fix login bug" ✅\n` +
     `• "Make button bigger" ✅\n\n` +
     `❌ "This sucks" - too vague!\n` +
-    `❌ "Fix it" - fix what?!\n` +
-    `❌ "Ugh" - just ugh!\n\n` +
-    `Give me DETAILS, human! I'm SMART but not THAT smart!`,
+    `❌ "Fix it" - fix what?!\n\n` +
+    `Give me DETAILS, human!`,
 
   parentCastNotFound: () =>
     `😱 GHOST CAST!\n\n` +
