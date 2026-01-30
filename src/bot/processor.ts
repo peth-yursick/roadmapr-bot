@@ -2,6 +2,7 @@ import { extractFeatures, type ExtractedFeature } from './extractor.js';
 import { autoTag } from './tagger.js';
 import { findSimilarFeatures, storeFeatureEmbedding } from './similarity.js';
 import { detectProjects, detectNewProjects } from './router.js';
+import { BotVoice } from './voice.js';
 import {
   getCast,
   getCastThread,
@@ -66,7 +67,7 @@ export async function processWebhook(webhookData: WebhookData) {
   // Rate limit check
   if (await checkRateLimited(author_fid)) {
     console.log(`[Processor] Rate limited: FID ${author_fid}`);
-    await postReply(cast_hash, "Daily limit reached (20/day). Try tomorrow!");
+    await postReply(cast_hash, BotVoice.rateLimited());
     await logBotMention(cast_hash, author_fid, parent_hash || null, {
       error: 'Rate limited'
     });
@@ -78,6 +79,7 @@ export async function processWebhook(webhookData: WebhookData) {
   console.log(`[Processor] Neynar score for FID ${author_fid}: ${score}`);
   if (score < MIN_NEYNAR_SCORE) {
     console.log(`[Processor] Low score: ${author_fid} (${score})`);
+    await postReply(cast_hash, BotVoice.lowNeynarScore());
     await logBotMention(cast_hash, author_fid, parent_hash || null, {
       error: `Low Neynar score: ${score}`
     });
@@ -86,9 +88,7 @@ export async function processWebhook(webhookData: WebhookData) {
 
   // Need parent cast to extract context
   if (!parent_hash) {
-    await postReply(cast_hash,
-      "Reply to a cast with feedback to add it to a roadmap!"
-    );
+    await postReply(cast_hash, BotVoice.noParentCast());
     await logBotMention(cast_hash, author_fid, null, {
       error: 'No parent cast'
     });
@@ -98,7 +98,7 @@ export async function processWebhook(webhookData: WebhookData) {
   // Get parent cast
   const parentCast = await getCast(parent_hash);
   if (!parentCast) {
-    await postReply(cast_hash, "Couldn't find that cast.");
+    await postReply(cast_hash, BotVoice.parentCastNotFound());
     await logBotMention(cast_hash, author_fid, parent_hash, {
       error: 'Parent cast not found'
     });
@@ -126,10 +126,7 @@ export async function processWebhook(webhookData: WebhookData) {
   // If no existing projects detected, check if they want to create a new one
   if (detectedProjects.length === 0) {
     if (newProjectCandidates.length > 0) {
-      const mentions = newProjectCandidates.map(h => `@${h}`).join(', ');
-      await postReply(cast_hash,
-        `${mentions} - New project detected!\n\nTo create your board, reply with:\n• Owner FID\n• Token address (or "clanker" for default)\n• Short bio\n\nExample: "Owner: 12345, Token: clanker, Bio: Building the future"`
-      );
+      await postReply(cast_hash, BotVoice.newProjectDetected(newProjectCandidates));
       await logBotMention(cast_hash, author_fid, parent_hash, {
         parent_cast_author_fid: parentCast.author.fid,
         parent_cast_text: parentCast.text,
@@ -138,15 +135,7 @@ export async function processWebhook(webhookData: WebhookData) {
       });
       return;
     } else {
-      // No projects detected - ask for clarification
-      await postReply(cast_hash,
-        "🤔 I couldn't figure out which project this is for.\n\n" +
-        "You can:\n" +
-        "• Mention the project: @roadmapr for @projectname\n" +
-        "• Use the project name: @roadmapr for Base\n" +
-        "• Or just tag me in any reply and I'll ask which project!\n\n" +
-        "What project should this feature go to?"
-      );
+      await postReply(cast_hash, BotVoice.noProjectDetected());
       await logBotMention(cast_hash, author_fid, parent_hash, {
         parent_cast_author_fid: parentCast.author.fid,
         parent_cast_text: parentCast.text,
@@ -166,13 +155,7 @@ export async function processWebhook(webhookData: WebhookData) {
   }
 
   if (projects.length === 0) {
-    await postReply(cast_hash,
-      "❌ Couldn't find that project in the database.\n\n" +
-      "Make sure the project exists. You can:\n" +
-      "• Use the exact project handle: @base\n" +
-      "• Or create a new project by mentioning it\n\n" +
-      "Want to create a new project?"
-    );
+    await postReply(cast_hash, BotVoice.projectNotFound(detectedProjects));
     await logBotMention(cast_hash, author_fid, parent_hash, {
       parent_cast_author_fid: parentCast.author.fid,
       parent_cast_text: parentCast.text,
@@ -184,11 +167,11 @@ export async function processWebhook(webhookData: WebhookData) {
 
   // If multiple projects detected, ask for clarification
   if (projects.length > 1) {
-    const projectList = projects.map(p => `• @${p.project_handle} (${p.name})`).join('\n');
-    await postReply(cast_hash,
-      `🤔 I found multiple projects. Which one should I add this to?\n\n${projectList}\n\n` +
-      `Reply with the project name to confirm!`
-    );
+    const projectList = projects.map(p => ({
+      handle: p.project_handle,
+      name: p.name
+    }));
+    await postReply(cast_hash, BotVoice.multipleProjects(projectList));
     await logBotMention(cast_hash, author_fid, parent_hash, {
       parent_cast_author_fid: parentCast.author.fid,
       parent_cast_text: parentCast.text,
@@ -206,14 +189,7 @@ export async function processWebhook(webhookData: WebhookData) {
   const extracted = await extractFeatures(fullContext);
 
   if (extracted.length === 0) {
-    await postReply(cast_hash,
-      "🤖 I couldn't extract a clear feature request from that.\n\n" +
-      "Try describing:\n" +
-      "• A specific feature: \"Add dark mode\"\n" +
-      "• A bug: \"Fix login not working\"\n" +
-      "• An improvement: \"Make the button bigger\"\n\n" +
-      "Want to add this to a project? Just reply with more details!"
-    );
+    await postReply(cast_hash, BotVoice.noFeatureExtracted());
     await logBotMention(cast_hash, author_fid, parent_hash, {
       parent_cast_author_fid: parentCast.author.fid,
       parent_cast_text: parentCast.text,
@@ -350,29 +326,52 @@ export async function processWebhook(webhookData: WebhookData) {
   console.log(`[Processor] Done processing ${cast_hash}`);
 }
 
-function formatReply(results: { created: Array<{ title: string; subItems: number }>; merged: Array<{ title: string }> }): string {
+function formatReply(results: { created: Array<{ title: string; subItems: number; project: string }>; merged: Array<{ title: string; project: string }> }): string {
   const { created, merged } = results;
-  let text = '';
 
-  if (created.length > 0) {
-    text += `✅ Added ${created.length} to roadmap:\n`;
+  // All created, no merged
+  if (created.length > 0 && merged.length === 0) {
+    const first = created[0];
+    if (created.length === 1) {
+      return BotVoice.featureCreated(first.title, first.project);
+    }
+    // Multiple features
+    let text = `${celebrate()}\n\n✅ Added ${created.length} features!\n`;
     created.forEach((f, i) => {
       text += `${i + 1}. ${f.title}`;
       if (f.subItems > 0) text += ` (+${f.subItems} options)`;
       text += `\n`;
     });
+    text += `\nKeep 'em coming! 🎯`;
+    return text;
   }
 
+  // All merged, no created
+  if (merged.length > 0 && created.length === 0) {
+    return BotVoice.featureMerged(merged[0].title, `${merged[0].project}`);
+  }
+
+  // Mixed
+  let text = `${celebrate()}\n\n`;
+  if (created.length > 0) {
+    text += `✅ Created: ${created[0].title}\n`;
+  }
   if (merged.length > 0) {
-    if (created.length > 0) text += '\n';
-    text += `🔗 Merged ${merged.length} into existing:\n`;
-    merged.forEach((f, i) => {
-      text += `${i + 1}. ${f.title}\n`;
-    });
+    text += `🔗 Merged: ${merged[0].title}\n`;
   }
-
-  text += '\nVote at roadmapr.xyz';
+  text += `\nVote at roadmapr.xyz`;
   return text;
+}
+
+function celebrate(): string {
+  const celebrations = [
+    "🎉 BOOM!",
+    "✨ BAM!",
+    "🚀 TO THE MOON!",
+    "💥 POW!",
+    "🤖 ROBOT SAYS: SUCCESS!",
+  ];
+  return celebrations[Math.floor(Math.random() * celebrations.length)];
 }
 
 function formatStandaloneCast(
@@ -381,7 +380,17 @@ function formatStandaloneCast(
   author: { username: string } | null
 ): string {
   const username = author?.username || parentCast.author.username;
-  return `📋 New on roadmap:\n\n"${feature.title}"\n\n` +
-    `Suggested by @${username}\n` +
-    `Vote: roadmapr.xyz/features/${feature.id}`;
+  const intros = [
+    "🚨 NEW FEATURE ALERT!",
+    "📋 HOT NEW REQUEST!",
+    "✨ FRESH SUGGESTION!",
+    "🎯 NEW FEATURE DROP!",
+  ];
+  const intro = intros[Math.floor(Math.random() * intros.length)];
+
+  return `${intro}\n\n` +
+    `"${feature.title}"\n\n` +
+    `👤 Suggested by @${username}\n` +
+    `🗳️ Vote: roadmapr.xyz/features/${feature.id}\n\n` +
+    `Make your voice heard! 📢`;
 }
