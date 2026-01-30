@@ -58,6 +58,13 @@ export async function processWebhook(webhookData: WebhookData) {
     return;
   }
 
+  // Ignore bot's own casts (prevent loops)
+  const BOT_FID = parseInt(process.env.ROADMAPR_BOT_FID || '0');
+  if (author_fid === BOT_FID) {
+    console.log(`[Processor] Ignoring bot's own cast`);
+    return;
+  }
+
   // Check if already processed
   if (await checkProcessed(cast_hash)) {
     console.log(`[Processor] Already processed: ${cast_hash}`);
@@ -67,10 +74,10 @@ export async function processWebhook(webhookData: WebhookData) {
   // Rate limit check
   if (await checkRateLimited(author_fid)) {
     console.log(`[Processor] Rate limited: FID ${author_fid}`);
-    await postReply(cast_hash, BotVoice.rateLimited());
     await logBotMention(cast_hash, author_fid, parent_hash || null, {
       error: 'Rate limited'
     });
+    await postReply(cast_hash, BotVoice.rateLimited());
     return;
   }
 
@@ -79,29 +86,29 @@ export async function processWebhook(webhookData: WebhookData) {
   console.log(`[Processor] Neynar score for FID ${author_fid}: ${score}`);
   if (score < MIN_NEYNAR_SCORE) {
     console.log(`[Processor] Low score: ${author_fid} (${score})`);
-    await postReply(cast_hash, BotVoice.lowNeynarScore());
     await logBotMention(cast_hash, author_fid, parent_hash || null, {
       error: `Low Neynar score: ${score}`
     });
+    await postReply(cast_hash, BotVoice.lowNeynarScore());
     return;
   }
 
   // Need parent cast to extract context
   if (!parent_hash) {
-    await postReply(cast_hash, BotVoice.noParentCast());
     await logBotMention(cast_hash, author_fid, null, {
       error: 'No parent cast'
     });
+    await postReply(cast_hash, BotVoice.noParentCast());
     return;
   }
 
   // Get parent cast
   const parentCast = await getCast(parent_hash);
   if (!parentCast) {
-    await postReply(cast_hash, BotVoice.parentCastNotFound());
     await logBotMention(cast_hash, author_fid, parent_hash, {
       error: 'Parent cast not found'
     });
+    await postReply(cast_hash, BotVoice.parentCastNotFound());
     return;
   }
 
@@ -125,21 +132,21 @@ export async function processWebhook(webhookData: WebhookData) {
   // If no existing projects detected, check if they want to create a new one
   if (detectedProjects.length === 0) {
     if (newProjectCandidates.length > 0) {
-      await postReply(cast_hash, BotVoice.newProjectDetected(newProjectCandidates));
       await logBotMention(cast_hash, author_fid, parent_hash, {
         parent_cast_author_fid: parentCast.author.fid,
         parent_cast_text: parentCast.text,
         detected_projects: newProjectCandidates,
         error: 'Awaiting project setup'
       });
+      await postReply(cast_hash, BotVoice.newProjectDetected(newProjectCandidates));
       return;
     } else {
-      await postReply(cast_hash, BotVoice.noProjectDetected());
       await logBotMention(cast_hash, author_fid, parent_hash, {
         parent_cast_author_fid: parentCast.author.fid,
         parent_cast_text: parentCast.text,
         error: 'No projects detected'
       });
+      await postReply(cast_hash, BotVoice.noProjectDetected());
       return;
     }
   }
@@ -154,13 +161,13 @@ export async function processWebhook(webhookData: WebhookData) {
   }
 
   if (projects.length === 0) {
-    await postReply(cast_hash, BotVoice.projectNotFound(detectedProjects));
     await logBotMention(cast_hash, author_fid, parent_hash, {
       parent_cast_author_fid: parentCast.author.fid,
       parent_cast_text: parentCast.text,
       detected_projects: detectedProjects,
       error: 'Projects not found in database'
     });
+    await postReply(cast_hash, BotVoice.projectNotFound(detectedProjects));
     return;
   }
 
@@ -170,7 +177,6 @@ export async function processWebhook(webhookData: WebhookData) {
       handle: p.project_handle,
       name: p.name
     }));
-    await postReply(cast_hash, BotVoice.multipleProjects(projectList));
     await logBotMention(cast_hash, author_fid, parent_hash, {
       parent_cast_author_fid: parentCast.author.fid,
       parent_cast_text: parentCast.text,
@@ -178,6 +184,7 @@ export async function processWebhook(webhookData: WebhookData) {
       projects_found: projects.map(p => p.project_handle),
       error: 'Multiple projects detected'
     });
+    await postReply(cast_hash, BotVoice.multipleProjects(projectList));
     return;
   }
 
@@ -188,13 +195,13 @@ export async function processWebhook(webhookData: WebhookData) {
   const extracted = await extractFeatures(fullContext);
 
   if (extracted.length === 0) {
-    await postReply(cast_hash, BotVoice.noFeatureExtracted());
     await logBotMention(cast_hash, author_fid, parent_hash, {
       parent_cast_author_fid: parentCast.author.fid,
       parent_cast_text: parentCast.text,
       detected_projects: detectedProjects,
       features_created: 0
     });
+    await postReply(cast_hash, BotVoice.noFeatureExtracted());
     return;
   }
 
