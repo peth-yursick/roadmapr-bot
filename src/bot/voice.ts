@@ -132,8 +132,8 @@ export const BotVoice = {
     `Example:\n` +
     `"Owner: @peth, Token: clanker"\n\n` +
     `"Owner: 2513548, Token: 0x1234..."\n\n` +
-    `I'll grab the project's bio from @${candidates[0]}'s Farcaster profile! 📝\n` +
-    `(If no profile/bio found, I'll ask the owner for a description)\n\n` +
+    `I'll use the bio from @${candidates[0]}'s Farcaster profile! 📝\n` +
+    `(If @${candidates[0]} has no bio, I'll ask for a description)\n\n` +
     `Let's make it happen! 💪`,
 
   noFeatureExtracted: () =>
