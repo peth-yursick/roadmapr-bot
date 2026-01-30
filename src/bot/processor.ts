@@ -191,7 +191,7 @@ export async function processWebhook(webhookData: WebhookData) {
         console.log(`[Processor] Creating project: @${projectHandle}`);
 
         // Parse owner (resolve @username or FID)
-        const parsedOwner = await parseOwner(setupInfo.owner);
+        const parsedOwner = await parseOwner(setupInfo.owner, BOT_FID);
         if (!parsedOwner) {
           await logBotMention(cast_hash, author_fid, parent_hash, {
             error: `Owner not found: ${setupInfo.owner}`

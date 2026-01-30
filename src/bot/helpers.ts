@@ -14,9 +14,11 @@ export interface ParsedProjectInfo {
 
 /**
  * Parse owner from username or FID
+ * @param ownerInput - The owner input (username or FID)
+ * @param botFid - The bot's FID (fallback if owner == 'roadmapr')
  */
-export async function parseOwner(ownerInput: string): Promise<ParsedOwner | null> {
-  const input = ownerInput.trim();
+export async function parseOwner(ownerInput: string, botFid?: number): Promise<ParsedOwner | null> {
+  const input = ownerInput.trim().replace('@', '');
 
   // Check if it's a FID (number)
   const fidMatch = input.match(/^\d+$/);
@@ -35,6 +37,16 @@ export async function parseOwner(ownerInput: string): Promise<ParsedOwner | null
   const usernameMatch = input.match(/^@?(\w+)$/);
   if (usernameMatch) {
     const username = usernameMatch[1];
+
+    // Special case: if owner is 'roadmapr' and we have botFid, use that
+    if (username.toLowerCase() === 'roadmapr' && botFid) {
+      console.log(`[Helpers] Owner is 'roadmapr' - using bot FID: ${botFid}`);
+      return {
+        fid: botFid,
+        username: 'roadmapr'
+      };
+    }
+
     const user = await lookupUserByUsername(username);
     if (!user) return null;
 
