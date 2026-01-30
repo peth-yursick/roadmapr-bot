@@ -30,6 +30,7 @@ export async function logBotMention(
     parent_cast_author_fid?: number;
     parent_cast_text?: string;
     detected_projects?: string[];
+    projects_found?: string[];
     features_created?: number;
     features_merged?: number;
     error?: string;
