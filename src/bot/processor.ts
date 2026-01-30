@@ -27,6 +27,11 @@ import {
   logBotMention
 } from '../db/bot.js';
 import { supabase } from '../db/client.js';
+import {
+  parseProjectSetupReply,
+  parseOwner,
+  getProjectBio
+} from './helpers.js';
 
 const MAX_FEATURES_PER_CAST = parseInt(process.env.MAX_FEATURES_PER_CAST || '5');
 const MIN_NEYNAR_SCORE = parseFloat(process.env.MIN_NEYNAR_SCORE || '0.1');
@@ -148,6 +153,83 @@ export async function processWebhook(webhookData: WebhookData) {
   }
 
   console.log(`[Processor] Context length: ${fullContext.length} chars (${contextCastCount} casts)`);
+
+  // Check if this is a project setup reply (user providing owner/token info)
+  if (isReplyToBot) {
+    const currentCastText = await getCastText(cast_hash);
+    const setupInfo = parseProjectSetupReply(currentCastText);
+
+    if (setupInfo.owner && setupInfo.token) {
+      console.log(`[Processor] Project setup reply detected: owner=${setupInfo.owner}, token=${setupInfo.token}`);
+
+      // Extract project handle from conversation context (look for "NEW PROJECT ALERT! @handle")
+      const projectHandle = extractProjectHandleFromThreadContext(
+        isReplyToBot ? await getCastThread(parent_hash) : []
+      );
+
+      if (projectHandle) {
+        console.log(`[Processor] Creating project: @${projectHandle}`);
+
+        // Parse owner (resolve @username or FID)
+        const parsedOwner = await parseOwner(setupInfo.owner);
+        if (!parsedOwner) {
+          await logBotMention(cast_hash, author_fid, parent_hash, {
+            error: `Owner not found: ${setupInfo.owner}`
+          });
+          await postReply(cast_hash, BotVoice.ownerNotFound(setupInfo.owner));
+          return;
+        }
+
+        // Get bio from project's Farcaster profile
+        const bioResult = await getProjectBio(projectHandle);
+        console.log(`[Processor] Bio for @${projectHandle}: ${bioResult ? 'found' : 'not found'}`);
+
+        // Determine voting type and token address
+        const voting_type: 'score' | 'token' = setupInfo.token.toLowerCase() === 'clanker' ? 'token' : 'score';
+        const isClanker = setupInfo.token.toLowerCase() === 'clanker';
+        const token_address = isClanker ? undefined : setupInfo.token;
+
+        // Create project
+        try {
+          const project = await createProject({
+            name: projectHandle.charAt(0).toUpperCase() + projectHandle.slice(1),
+            project_handle: projectHandle,
+            owner_fid: parsedOwner.fid,
+            ...(bioResult && { bio: bioResult }),
+            voting_type,
+            ...(token_address && { token_address }),
+            created_by_bot: true
+          });
+
+          console.log(`[Processor] Project created: ${project.id} (@${projectHandle})`);
+
+          await logBotMention(cast_hash, author_fid, parent_hash, {
+            project_created: project.id,
+            project_handle: projectHandle,
+            owner_fid: parsedOwner.fid,
+            voting_type
+          });
+
+          await postReply(cast_hash, BotVoice.projectCreated(project, parsedOwner.username));
+          return;
+        } catch (err) {
+          console.error(`[Processor] Failed to create project:`, err);
+          await logBotMention(cast_hash, author_fid, parent_hash, {
+            error: `Project creation failed: ${(err as Error).message}`
+          });
+          await postReply(cast_hash, BotVoice.genericError('Failed to create project'));
+          return;
+        }
+      } else {
+        console.log(`[Processor] Could not extract project handle from conversation`);
+        await logBotMention(cast_hash, author_fid, parent_hash, {
+          error: 'Could not determine project handle from conversation'
+        });
+        await postReply(cast_hash, BotVoice.couldNotDetermineProject());
+        return;
+      }
+    }
+  }
 
   // Detect projects mentioned
   const detectedProjects = await detectProjects(fullContext, parentCast);
@@ -441,4 +523,21 @@ async function isReplyToBotCast(castHash: string, botFid: number): Promise<boole
 async function getCastText(castHash: string): Promise<string> {
   const cast = await getCast(castHash);
   return cast?.text || '';
+}
+
+/**
+ * Extract project handle from thread context (looks for "NEW PROJECT ALERT! @handle")
+ */
+function extractProjectHandleFromThreadContext(thread: Array<{ text: string }>): string | null {
+  // Look through the thread for the "NEW PROJECT ALERT!" message
+  for (const cast of thread) {
+    if (cast.text.includes('NEW PROJECT ALERT!')) {
+      // Extract the @handle from the message
+      const match = cast.text.match(/@(\w+)/);
+      if (match) {
+        return match[1].toLowerCase();
+      }
+    }
+  }
+  return null;
 }

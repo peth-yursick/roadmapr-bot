@@ -153,6 +153,33 @@ export const BotVoice = {
     `❌ "Fix it" - fix what?!\n\n` +
     `Give me DETAILS, human!`,
 
+  ownerNotFound: (owner: string) =>
+    `😱 UHHH...\n\n` +
+    `I can't find owner "${owner}"!\n\n` +
+    `Make sure the username or FID is correct.\n` +
+    `Try again with a valid @username or FID!\n\n` +
+    `🤖 Confused robot needs help!`,
+
+  couldNotDetermineProject: () =>
+    `😰 OOPSIE!\n\n` +
+    `I can't figure out WHICH PROJECT you're setting up!\n\n` +
+    `Try starting over:\n` +
+    `1. Mention @roadmapr with the new project\n` +
+    `2. Reply with owner and token\n\n` +
+    `Example: "@roadmapr for @newproject"\n\n` +
+    `Then I'll know what we're doing!`,
+
+  projectCreated: (project: { name: string; project_handle: string; voting_type: string }, ownerUsername: string) =>
+    `${celebrate()}\n\n` +
+    `🎉 PROJECT CREATED!\n\n` +
+    `Name: ${project.name}\n` +
+    `Handle: @${project.project_handle}\n` +
+    `Owner: @${ownerUsername}\n` +
+    `Voting: ${project.voting_type === 'token' ? '🪙 Token' : '⭐ Score'}\n\n` +
+    `Start adding features! Just reply to a cast with:\n` +
+    `"@roadmapr for @${project.project_handle}"\n\n` +
+    `Let's goooo! 🚀`,
+
   parentCastNotFound: () =>
     `😱 GHOST CAST!\n\n` +
     `I can't find that cast... spooky! 👻\n\n` +

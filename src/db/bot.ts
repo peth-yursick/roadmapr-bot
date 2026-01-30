@@ -34,6 +34,10 @@ export async function logBotMention(
     features_created?: number;
     features_merged?: number;
     error?: string;
+    project_created?: string;
+    project_handle?: string;
+    owner_fid?: number;
+    voting_type?: string;
   }
 ) {
   const { error } = await supabase
