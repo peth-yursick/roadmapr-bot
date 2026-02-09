@@ -1,8 +1,9 @@
 import { extractFeatures, type ExtractedFeature } from './extractor.js';
 import { autoTag } from './tagger.js';
 import { findSimilarFeatures, storeFeatureEmbedding } from './similarity.js';
-import { detectProjects, detectNewProjects } from './router.js';
+import { detectProjects, detectNewProjects, getAllProjects } from './router.js';
 import { BotVoice } from './voice.js';
+import { detectIntent } from './intent.js';
 import {
   getCast,
   getCastThread,
@@ -252,32 +253,41 @@ export async function processWebhook(webhookData: WebhookData) {
     }
   }
 
-  // Detect projects mentioned
-  const detectedProjects = await detectProjects(fullContext, parentCast);
-  const newProjectCandidates = await detectNewProjects(fullContext);
+  // Use LLM-based intent detection for smarter understanding
+  const allKnownProjects = (await getAllProjects()).map((p: { project_handle: string }) => p.project_handle);
+  const intent = await detectIntent(fullContext, allKnownProjects);
 
-  console.log(`[Processor] Projects: ${detectedProjects.join(',') || 'none'}, New: ${newProjectCandidates.join(',') || 'none'}`);
+  console.log(`[Intent] Detected: ${intent.intent} (confidence: ${intent.confidence})`);
+  console.log(`[Intent] Target projects: ${intent.targetProjects.join(',') || 'none'}`);
+  console.log(`[Intent] New project name: ${intent.newProjectName || 'none'}`);
+  if (intent.reasoning) {
+    console.log(`[Intent] Reasoning: ${intent.reasoning}`);
+  }
 
-  // If no existing projects detected, check if they want to create a new one
-  if (detectedProjects.length === 0) {
-    if (newProjectCandidates.length > 0) {
-      await logBotMention(cast_hash, author_fid, parent_hash, {
-        parent_cast_author_fid: parentCast.author.fid,
-        parent_cast_text: parentCast.text,
-        detected_projects: newProjectCandidates,
-        error: 'Awaiting project setup'
-      });
-      await postReply(cast_hash, BotVoice.newProjectDetected(newProjectCandidates));
-      return;
-    } else {
-      await logBotMention(cast_hash, author_fid, parent_hash, {
-        parent_cast_author_fid: parentCast.author.fid,
-        parent_cast_text: parentCast.text,
-        error: 'No projects detected'
-      });
-      await postReply(cast_hash, BotVoice.noProjectDetected());
-      return;
-    }
+  // Handle create_project intent
+  if (intent.intent === 'create_project' && intent.newProjectName) {
+    const projectName = intent.newProjectName.charAt(0).toUpperCase() + intent.newProjectName.slice(1);
+    const projectHandle = intent.newProjectName.toLowerCase();
+
+    await logBotMention(cast_hash, author_fid, parent_hash, {
+      detected_projects: [projectHandle],
+      error: 'Awaiting project setup'
+    });
+
+    await postReply(cast_hash, BotVoice.newProjectIntentDetected(projectHandle, author_fid));
+    return;
+  }
+
+  // Get target projects from intent detection
+  const detectedProjects = intent.targetProjects;
+
+  // If no projects detected and confidence is low, ask for clarification
+  if (detectedProjects.length === 0 && intent.confidence < 0.5) {
+    await logBotMention(cast_hash, author_fid, parent_hash, {
+      error: `Low confidence intent detection: ${intent.intent}`
+    });
+    await postReply(cast_hash, BotVoice.noProjectDetected());
+    return;
   }
 
   // Load projects

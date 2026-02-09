@@ -136,6 +136,19 @@ export const BotVoice = {
     `(If @${candidates[0]} has no bio, I'll ask for a description)\n\n` +
     `Let's make it happen! 💪`,
 
+  newProjectIntentDetected: (projectHandle: string, requesterFid: number) =>
+    `🆕 NEW PROJECT ALERT! @${projectHandle}!\n\n` +
+    `Let's get this set up! Reply with:\n\n` +
+    `• Owner (@username or FID - I'll assume @${requesterFid} if you don't specify)\n` +
+    `• Token type ("clanker" for token voting, anything else for score voting)\n\n` +
+    `Example:\n` +
+    `"Owner: @${requesterFid}, Token: clanker"\n\n` +
+    `Or just:\n` +
+    `"Owner: me, Token: clanker"\n\n` +
+    `I'll use the bio from @${projectHandle}'s Farcaster profile! 📝\n` +
+    `(If @${projectHandle} has no bio, I'll ask for a description)\n\n` +
+    `Let's make it happen! 💪`,
+
   noFeatureExtracted: () =>
     `${confused()}\n\n` +
     `🤖 I'm reading... I'm reading...\n\n` +

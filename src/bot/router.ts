@@ -1,6 +1,9 @@
 import type { Cast } from '../neynar/client.js';
 import { getAllProjects } from '../db/projects.js';
 
+// Re-export for use in other modules
+export { getAllProjects };
+
 export async function detectProjects(text: string, cast: Cast): Promise<string[]> {
   const detectedHandles = new Set<string>();
 
