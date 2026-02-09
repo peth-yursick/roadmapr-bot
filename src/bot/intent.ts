@@ -81,7 +81,7 @@ Return JSON only:`;
 
   try {
     const response = await callGLMAPI('chat/completions', {
-      model: 'glm-4-flash',
+      model: 'glm-4',  // Use base GLM-4 model (more widely available)
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,  // Low temperature for consistent intent detection
     }) as { choices: Array<{ message: { content: string } }> };
