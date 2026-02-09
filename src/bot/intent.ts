@@ -19,6 +19,13 @@ async function callGLMAPI(endpoint: string, body: any) {
   return response.json();
 }
 
+// Try multiple models in order of preference
+const MODELS_TO_TRY = [
+  'glm-4-flash',   // Fastest, cheapest
+  'glm-4',         // Standard model
+  'glm-3-turbo',   // Fallback to older model
+];
+
 export interface DetectedIntent {
   intent: 'create_project' | 'add_feature' | 'unknown';
   targetProjects: string[];  // Project handles mentioned
@@ -79,45 +86,52 @@ ${text}
 
 Return JSON only:`;
 
-  try {
-    const response = await callGLMAPI('chat/completions', {
-      model: 'glm-4-plus',  // Updated GLM-4 Plus model
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,  // Low temperature for consistent intent detection
-    }) as { choices: Array<{ message: { content: string } }> };
+  // Try models in order, fallback to next if model doesn't exist
+  for (const model of MODELS_TO_TRY) {
+    try {
+      const response = await callGLMAPI('chat/completions', {
+        model: model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+      }) as { choices: Array<{ message: { content: string } }> };
 
-    const content = response.choices[0]?.message?.content || '';
+      const content = response.choices[0]?.message?.content || '';
 
-    // Extract JSON from response
-    let jsonText = content.trim();
-    if (jsonText.startsWith('```json')) {
-      jsonText = jsonText.slice(7);
+      // Extract JSON from response
+      let jsonText = content.trim();
+      if (jsonText.startsWith('```json')) {
+        jsonText = jsonText.slice(7);
+      }
+      if (jsonText.startsWith('```')) {
+        jsonText = jsonText.slice(3);
+      }
+      if (jsonText.endsWith('```')) {
+        jsonText = jsonText.slice(0, -3);
+      }
+      jsonText = jsonText.trim();
+
+      const parsed = JSON.parse(jsonText);
+
+      // Validate the response
+      return {
+        intent: parsed.intent || 'unknown',
+        targetProjects: Array.isArray(parsed.targetProjects) ? parsed.targetProjects : [],
+        newProjectName: parsed.newProjectName,
+        confidence: parsed.confidence || 0.5,
+        reasoning: parsed.reasoning
+      };
+    } catch (modelErr) {
+      console.error(`[Intent] Model ${model} failed:`, modelErr instanceof Error ? modelErr.message : modelErr);
+      // Continue to next model
+      continue;
     }
-    if (jsonText.startsWith('```')) {
-      jsonText = jsonText.slice(3);
-    }
-    if (jsonText.endsWith('```')) {
-      jsonText = jsonText.slice(0, -3);
-    }
-    jsonText = jsonText.trim();
-
-    const parsed = JSON.parse(jsonText);
-
-    // Validate the response
-    return {
-      intent: parsed.intent || 'unknown',
-      targetProjects: Array.isArray(parsed.targetProjects) ? parsed.targetProjects : [],
-      newProjectName: parsed.newProjectName,
-      confidence: parsed.confidence || 0.5,
-      reasoning: parsed.reasoning
-    };
-  } catch (err) {
-    console.error('[Intent] LLM detection error:', err);
-    // Fallback to unknown
-    return {
-      intent: 'unknown',
-      targetProjects: [],
-      confidence: 0
-    };
   }
+
+  // All models failed
+  console.error('[Intent] All GLM models failed, falling back to unknown');
+  return {
+    intent: 'unknown',
+    targetProjects: [],
+    confidence: 0
+  };
 }
