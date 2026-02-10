@@ -103,7 +103,7 @@ function detectIntentByPattern(text: string, allKnownProjects: string[]): Detect
     /set\s*up\s+(?:a\s+|the\s+)?[\"']?([a-z0-9_-]+)[\"']?\s+project\b/i,
   ];
 
-  const stopwords = new Set(['a', 'an', 'the', 'my', 'our', 'this', 'that', 'new', 'project', 'board']);
+  const stopwords = new Set(['a', 'an', 'the', 'my', 'our', 'this', 'that', 'new', 'project', 'board', 'alert']);
 
   for (const pattern of createProjectPatterns) {
     const match = cleanText.match(pattern);

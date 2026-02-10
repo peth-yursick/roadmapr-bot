@@ -167,9 +167,15 @@ export async function processWebhook(webhookData: WebhookData) {
     console.log(`[Processor] Reply to bot - checking for setup info first`);
     const setupInfo = parseProjectSetupReply(currentCastText);
 
-    // Check if project handle is provided in the reply or extract from thread
+    // Check if project handle is provided in the reply or extract from context
     let projectHandle: string | null = setupInfo.project || null;
     if (!projectHandle) {
+      // First check the parent cast (the bot's message the user is replying to)
+      // getCastThread doesn't include the cast itself, so we check parentCast.text separately
+      projectHandle = extractProjectHandleFromBotMessage(parentCast.text);
+    }
+    if (!projectHandle) {
+      // Fallback: search the full thread
       projectHandle = extractProjectHandleFromThreadContext(
         await getCastThread(parent_hash)
       );
@@ -560,6 +566,27 @@ async function getCastText(castHash: string): Promise<string> {
 }
 
 /**
+ * Extract project handle from a bot message (e.g. "NEW PROJECT ALERT! @castoors!")
+ * Used when the user replies directly to the bot's message
+ */
+function extractProjectHandleFromBotMessage(botText: string): string | null {
+  if (!botText.includes('NEW PROJECT ALERT!') && !botText.includes('NEW PROJECT ALERT')) {
+    return null;
+  }
+  // Extract the @handle from "NEW PROJECT ALERT! @castoors!"
+  // Skip @roadmapr and common non-project mentions
+  const mentions = botText.match(/@(\w+)/g) || [];
+  for (const mention of mentions) {
+    const handle = mention.slice(1).toLowerCase();
+    if (handle !== 'roadmapr' && handle !== 'unknown' && handle.length > 1) {
+      console.log(`[Processor] Extracted project handle "${handle}" from bot message`);
+      return handle;
+    }
+  }
+  return null;
+}
+
+/**
  * Extract project handle from thread context (looks for "NEW PROJECT ALERT! @handle")
  */
 function extractProjectHandleFromThreadContext(thread: Array<{ text: string }>): string | null {
@@ -573,20 +600,26 @@ function extractProjectHandleFromThreadContext(thread: Array<{ text: string }>):
       continue;
     }
 
-    // Look for project creation patterns
+    // Look for project creation patterns (both "create project X" and "create X project")
     const patterns = [
-      /create(?:\s+a)?(?:\s+new)?\s+project\s+(?:called\s+)?[@]?(\w+)/i,
-      /new\s+project\s+(?:called\s+)?[@]?(\w+)/i,
-      /make\s+(?:a\s+)?project\s+(?:called\s+)?[@]?(\w+)/i,
-      /add\s+project\s+(?:called\s+)?[@]?(\w+)/i,
-      /setup\s+(?:a\s+)?project\s+(?:called\s+)?[@]?(\w+)/i,
+      /create(?:\s+a)?(?:\s+new)?\s+project\s+(?:called\s+|named\s+)?[@]?(\w+)/i,
+      /create\s+(?:a\s+|the\s+)?[@]?(\w+)\s+project\b/i,
+      /new\s+project\s+(?:called\s+|named\s+)?[@]?(\w+)/i,
+      /make\s+(?:a\s+)?project\s+(?:called\s+|named\s+)?[@]?(\w+)/i,
+      /make\s+(?:a\s+|the\s+)?[@]?(\w+)\s+project\b/i,
+      /add\s+project\s+(?:called\s+|named\s+)?[@]?(\w+)/i,
+      /set\s*up\s+(?:a\s+)?project\s+(?:called\s+|named\s+)?[@]?(\w+)/i,
+      /set\s*up\s+(?:a\s+|the\s+)?[@]?(\w+)\s+project\b/i,
+      /deploy\s+project\s+[@]?(\w+)/i,
+      /deploy\s+(?:a\s+|the\s+)?[@]?(\w+)\s+project\b/i,
     ];
+    const stopwords = new Set(['a', 'an', 'the', 'my', 'our', 'this', 'that', 'new', 'project', 'board', 'alert']);
 
     for (const pattern of patterns) {
       const match = cast.text.match(pattern);
       if (match) {
         const handle = match[1].toLowerCase().replace(/[^a-z0-9_-]/g, '');
-        if (handle && handle !== 'roadmapr') {
+        if (handle && handle !== 'roadmapr' && !stopwords.has(handle)) {
           console.log(`[Processor] Extracted project handle "${handle}" from conversation context`);
           return handle;
         }
