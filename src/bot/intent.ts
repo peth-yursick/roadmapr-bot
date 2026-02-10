@@ -36,6 +36,111 @@ export interface DetectedIntent {
 }
 
 /**
+ * Pattern-matching fallback for when LLM is unavailable
+ * Handles common intents without needing API calls
+ */
+function detectIntentByPattern(text: string, allKnownProjects: string[]): DetectedIntent {
+  const lowerText = text.toLowerCase();
+  const targetProjects: string[] = [];
+  let newProjectName: string | undefined;
+  let intent: 'create_project' | 'add_feature' | 'unknown' = 'unknown';
+
+  // Extract @mentions as potential projects (but exclude @roadmapr)
+  const mentionRegex = /@([a-z0-9_-]+)/gi;
+  const mentions = new Set<string>();
+  let match;
+  while ((match = mentionRegex.exec(text)) !== null) {
+    const handle = match[1].toLowerCase();
+    if (handle !== 'roadmapr') {
+      mentions.add(handle);
+    }
+  }
+
+  // Pattern 1: Create project intents
+  const createProjectPatterns = [
+    /create\s+(?:a\s+)?(?:new\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    /new\s+project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    /make\s+(?:a\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    /add\s+project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    /setup\s+(?:a\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    /start\s+(?:a\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    /project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?\s+(?:for|with|board)/i,
+  ];
+
+  for (const pattern of createProjectPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      intent = 'create_project';
+      newProjectName = match[1].toLowerCase().replace(/[^a-z0-9_-]/g, '');
+      return {
+        intent,
+        targetProjects: [],
+        newProjectName,
+        confidence: 0.75,
+        reasoning: 'Pattern matched: create project request'
+      };
+    }
+  }
+
+  // Pattern 2: Add feature intents
+  const addFeaturePatterns = [
+    /add\s+\w+\s+(?:to\s+)?@?([a-z0-9_-]+)/i,
+    /for\s+@?([a-z0-9_-]+),?\s+(?:add|create|implement|build)/i,
+    /@?([a-z0-9_-]+)\s+(?:should|needs|requires)\s+/i,
+    /feature\s+(?:request\s+)?(?:for\s+)?@?([a-z0-9_-]+)/i,
+    /(?:implement|build|make)\s+\w+\s+for\s+@?([a-z0-9_-]+)/i,
+  ];
+
+  for (const pattern of addFeaturePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const potentialProject = match[1].toLowerCase();
+      // Check if it's a known project or was mentioned
+      if (allKnownProjects.includes(potentialProject) || mentions.has(potentialProject)) {
+        intent = 'add_feature';
+        targetProjects.push(potentialProject);
+        return {
+          intent,
+          targetProjects,
+          confidence: 0.70,
+          reasoning: 'Pattern matched: add feature request'
+        };
+      }
+    }
+  }
+
+  // Pattern 3: If there are project mentions but no clear intent, assume add_feature
+  if (mentions.size > 0) {
+    const knownMentions = Array.from(mentions).filter(m => allKnownProjects.includes(m));
+    if (knownMentions.length > 0) {
+      return {
+        intent: 'add_feature',
+        targetProjects: knownMentions,
+        confidence: 0.50,
+        reasoning: 'Project mentions detected, assuming add feature intent'
+      };
+    }
+  }
+
+  // Pattern 4: Generic create project detection (no specific name)
+  if (/\b(create|new|make|add|setup|start)\s+project\b/i.test(lowerText)) {
+    return {
+      intent: 'create_project',
+      targetProjects: [],
+      confidence: 0.40,
+      reasoning: 'Create project keywords detected but no specific name found'
+    };
+  }
+
+  return {
+    intent: 'unknown',
+    targetProjects: [],
+    confidence: 0.2,
+    reasoning: 'No clear pattern matched'
+  };
+}
+
+/**
  * Use LLM to intelligently detect user intent and target projects
  * This is much smarter than pattern matching - it understands context
  */
@@ -135,11 +240,9 @@ Return JSON only:`;
     }
   }
 
-  // All models failed
-  console.error('[Intent] All GLM models failed, falling back to unknown');
-  return {
-    intent: 'unknown',
-    targetProjects: [],
-    confidence: 0
-  };
+  // All models failed - use pattern matching fallback
+  console.log('[Intent] All GLM models failed, using pattern matching fallback');
+  const patternResult = detectIntentByPattern(text, allKnownProjects);
+  console.log(`[Intent] Pattern result: ${patternResult.intent} (confidence: ${patternResult.confidence})`);
+  return patternResult;
 }
