@@ -1,19 +1,19 @@
-// OpenAI API configuration (replacing GLM)
-const OPENAI_API_URL = 'https://api.openai.com/v1/';
+// GLM API configuration
+const GLM_API_URL = 'https://open.bigmodel.cn/api/paas/v4/';
 
-async function callOpenAI(endpoint: string, body: any) {
-  const response = await fetch(`${OPENAI_API_URL}${endpoint}`, {
+async function callGLMAPI(endpoint: string, body: any) {
+  const response = await fetch(`${GLM_API_URL}${endpoint}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Authorization': `Bearer ${process.env.GLM_API_KEY}`,
     },
     body: JSON.stringify(body),
   });
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} ${error}`);
+    throw new Error(`GLM API error: ${response.status} ${error}`);
   }
 
   return response.json();
@@ -21,9 +21,11 @@ async function callOpenAI(endpoint: string, body: any) {
 
 // Try multiple models in order of preference
 const MODELS_TO_TRY = [
-  'gpt-4o-mini',      // Fast, cheap, reliable
-  'gpt-4o-mini-free', // Free tier if available
-  'gpt-3.5-turbo',    // Backup
+  'glm-4-flashx',
+  'glm-4-flash',
+  'glm-4-plus',
+  'glm-4',
+  'glm-3-turbo',
 ];
 
 export interface DetectedIntent {
@@ -89,7 +91,7 @@ Return JSON only:`;
   // Try models in order, fallback to next if model doesn't exist
   for (const model of MODELS_TO_TRY) {
     try {
-      const response = await callOpenAI('chat/completions', {
+      const response = await callGLMAPI('chat/completions', {
         model: model,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
@@ -123,8 +125,9 @@ Return JSON only:`;
     } catch (modelErr) {
       const errorMsg = modelErr instanceof Error ? modelErr.message : String(modelErr);
       console.error(`[Intent] Model ${model} failed: ${errorMsg}`);
-      // If it's a 401 or 404 error (auth/model not found), try next model
-      if (errorMsg.includes('401') || errorMsg.includes('404') || errorMsg.includes('model_not_found')) {
+      // If it's a 400/401/404 error or model not found, try next model
+      if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('404') ||
+          errorMsg.includes('1211') || errorMsg.includes('模型不存在') || errorMsg.includes('model_not_found')) {
         console.log(`[Intent] Model ${model} not available, trying next...`);
         continue;
       }
