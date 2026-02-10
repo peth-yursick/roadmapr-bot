@@ -161,99 +161,89 @@ export async function processWebhook(webhookData: WebhookData) {
 
   console.log(`[Processor] Context length: ${fullContext.length} chars (${contextCastCount} casts)`);
 
-  // PRIORITY: If replying to the bot, check for project setup info FIRST
-  // This prevents re-detecting "create_project" from old thread context
-  if (isReplyToBot) {
-    console.log(`[Processor] Reply to bot - checking for setup info first`);
-    const setupInfo = parseProjectSetupReply(currentCastText);
-
-    // Check if project handle is provided in the reply or extract from context
-    let projectHandle: string | null = setupInfo.project || null;
-    if (!projectHandle) {
-      // First check the parent cast (the bot's message the user is replying to)
-      // getCastThread doesn't include the cast itself, so we check parentCast.text separately
-      projectHandle = extractProjectHandleFromBotMessage(parentCast.text);
+  // PRIORITY: Check for project setup replies BEFORE intent detection.
+  // Don't rely on isReplyToBot (BOT_FID may be wrong) - instead detect by content:
+  // If current message has owner/token info AND context has "NEW PROJECT ALERT!", it's a setup reply.
+  const setupInfo = parseProjectSetupReply(currentCastText);
+  // Look for pending project setup in parent cast or thread
+  let pendingProjectHandle: string | null = extractProjectHandleFromBotMessage(parentCast.text);
+  if (!pendingProjectHandle) {
+    const thread = await getCastThread(parent_hash);
+    // Check all thread casts for bot's "NEW PROJECT ALERT!" message
+    for (const cast of thread) {
+      pendingProjectHandle = extractProjectHandleFromBotMessage(cast.text);
+      if (pendingProjectHandle) break;
     }
-    if (!projectHandle) {
-      // Fallback: search the full thread
-      projectHandle = extractProjectHandleFromThreadContext(
-        await getCastThread(parent_hash)
-      );
-    }
-
-    if (setupInfo.owner && projectHandle) {
-      console.log(`[Processor] Project setup reply detected: project=@${projectHandle}, owner=${setupInfo.owner}, token=${setupInfo.token || 'clanker'}`);
-      console.log(`[Processor] Creating project: @${projectHandle}`);
-
-      // Handle "owner: me" / "im the owner" - use the replying user's FID
-      let ownerInput = setupInfo.owner;
-      if (ownerInput === 'me') {
-        ownerInput = String(author_fid);
-        console.log(`[Processor] Owner is "me" - using author FID: ${author_fid}`);
-      }
-
-      // Parse owner (resolve @username or FID)
-      const parsedOwner = await parseOwner(ownerInput, BOT_FID);
-      if (!parsedOwner) {
-        await logBotMention(cast_hash, author_fid, parent_hash, {
-          error: `Owner not found: ${setupInfo.owner}`
-        });
-        await postReply(cast_hash, BotVoice.ownerNotFound(setupInfo.owner));
-        return;
-      }
-
-      // Get bio from project's Farcaster profile
-      const bioResult = await getProjectBio(projectHandle);
-      console.log(`[Processor] Bio for @${projectHandle}: ${bioResult ? 'found' : 'not found'}`);
-
-      // Determine voting type and token address
-      const tokenInput = (setupInfo.token || 'clanker').toLowerCase();
-      const voting_type: 'score' | 'token' = tokenInput === 'clanker' ? 'token' : 'score';
-      const isClanker = tokenInput === 'clanker';
-      const token_address = isClanker ? undefined : setupInfo.token;
-
-      // Create project
-      try {
-        const project = await createProject({
-          name: projectHandle.charAt(0).toUpperCase() + projectHandle.slice(1),
-          project_handle: projectHandle,
-          owner_fid: parsedOwner.fid,
-          ...(bioResult && { bio: bioResult }),
-          voting_type,
-          ...(token_address && { token_address }),
-          created_by_bot: true
-        });
-
-        console.log(`[Processor] Project created: ${project.id} (@${projectHandle})`);
-
-        await logBotMention(cast_hash, author_fid, parent_hash, {
-          project_created: project.id,
-          project_handle: projectHandle,
-          owner_fid: parsedOwner.fid,
-          voting_type
-        });
-
-        await postReply(cast_hash, BotVoice.projectCreated(project, parsedOwner.username));
-        return;
-      } catch (err) {
-        console.error(`[Processor] Failed to create project:`, err);
-        await logBotMention(cast_hash, author_fid, parent_hash, {
-          error: `Project creation failed: ${(err as Error).message}`
-        });
-        await postReply(cast_hash, BotVoice.genericError('Failed to create project'));
-        return;
-      }
-    }
-    // If no setup info found, fall through to normal intent detection
-    console.log(`[Processor] No setup info found in reply, falling through to intent detection`);
   }
 
-  // Use LLM-based intent detection for understanding what the user wants
+  if (setupInfo.owner && pendingProjectHandle) {
+    console.log(`[Processor] Project setup reply detected: project=@${pendingProjectHandle}, owner=${setupInfo.owner}, token=${setupInfo.token || 'clanker'}`);
+    console.log(`[Processor] Creating project: @${pendingProjectHandle}`);
+
+    // Handle "owner: me" / "im the owner" - use the replying user's FID
+    let ownerInput = setupInfo.owner;
+    if (ownerInput === 'me') {
+      ownerInput = String(author_fid);
+      console.log(`[Processor] Owner is "me" - using author FID: ${author_fid}`);
+    }
+
+    // Parse owner (resolve @username or FID)
+    const parsedOwner = await parseOwner(ownerInput, BOT_FID);
+    if (!parsedOwner) {
+      await logBotMention(cast_hash, author_fid, parent_hash, {
+        error: `Owner not found: ${setupInfo.owner}`
+      });
+      await postReply(cast_hash, BotVoice.ownerNotFound(setupInfo.owner));
+      return;
+    }
+
+    // Get bio from project's Farcaster profile
+    const bioResult = await getProjectBio(pendingProjectHandle);
+    console.log(`[Processor] Bio for @${pendingProjectHandle}: ${bioResult ? 'found' : 'not found'}`);
+
+    // Determine voting type and token address
+    const tokenInput = (setupInfo.token || 'clanker').toLowerCase();
+    const voting_type: 'score' | 'token' = tokenInput === 'clanker' ? 'token' : 'score';
+    const isClanker = tokenInput === 'clanker';
+    const token_address = isClanker ? undefined : setupInfo.token;
+
+    // Create project
+    try {
+      const project = await createProject({
+        name: pendingProjectHandle.charAt(0).toUpperCase() + pendingProjectHandle.slice(1),
+        project_handle: pendingProjectHandle,
+        owner_fid: parsedOwner.fid,
+        ...(bioResult && { bio: bioResult }),
+        voting_type,
+        ...(token_address && { token_address }),
+        created_by_bot: true
+      });
+
+      console.log(`[Processor] Project created: ${project.id} (@${pendingProjectHandle})`);
+
+      await logBotMention(cast_hash, author_fid, parent_hash, {
+        project_created: project.id,
+        project_handle: pendingProjectHandle,
+        owner_fid: parsedOwner.fid,
+        voting_type
+      });
+
+      await postReply(cast_hash, BotVoice.projectCreated(project, parsedOwner.username));
+      return;
+    } catch (err) {
+      console.error(`[Processor] Failed to create project:`, err);
+      await logBotMention(cast_hash, author_fid, parent_hash, {
+        error: `Project creation failed: ${(err as Error).message}`
+      });
+      await postReply(cast_hash, BotVoice.genericError('Failed to create project'));
+      return;
+    }
+  }
+
+  // Use intent detection on the CURRENT cast text (the user's actual command)
+  // Using fullContext would mix in old thread messages and confuse the intent
   const allKnownProjects = (await getAllProjects()).map((p: { project_handle: string }) => p.project_handle);
-  // For intent detection, use the current cast text (the user's actual command), not the full thread
-  // This prevents old messages in thread from confusing the intent
-  const intentText = isReplyToBot ? currentCastText : fullContext;
-  const intent = await detectIntent(intentText, allKnownProjects);
+  const intent = await detectIntent(currentCastText, allKnownProjects);
 
   console.log(`[Intent] Detected: ${intent.intent} (confidence: ${intent.confidence})`);
   console.log(`[Intent] Target projects: ${intent.targetProjects.join(',') || 'none'}`);
