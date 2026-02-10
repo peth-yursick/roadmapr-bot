@@ -59,61 +59,82 @@ export interface DetectedIntent {
  * Handles common intents without needing API calls
  */
 function detectIntentByPattern(text: string, allKnownProjects: string[]): DetectedIntent {
-  const lowerText = text.toLowerCase();
   const targetProjects: string[] = [];
   let newProjectName: string | undefined;
   let intent: 'create_project' | 'add_feature' | 'unknown' = 'unknown';
 
-  // Extract @mentions as potential projects (but exclude @roadmapr)
+  // Strip @roadmapr mentions to reduce noise in pattern matching
+  const cleanText = text.replace(/@roadmapr\b/gi, '').replace(/\s+/g, ' ').trim();
+  const lowerText = cleanText.toLowerCase();
+
+  // Extract @mentions as potential projects (already excludes @roadmapr via cleanText)
   const mentionRegex = /@([a-z0-9_-]+)/gi;
   const mentions = new Set<string>();
   let match;
-  while ((match = mentionRegex.exec(text)) !== null) {
+  while ((match = mentionRegex.exec(cleanText)) !== null) {
     const handle = match[1].toLowerCase();
-    if (handle !== 'roadmapr') {
-      mentions.add(handle);
-    }
+    mentions.add(handle);
   }
 
   // Pattern 1: Create project intents
+  // Patterns match against cleanText (with @roadmapr stripped)
   const createProjectPatterns = [
-    /create\s+(?:a\s+)?(?:new\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
-    /new\s+project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
-    /make\s+(?:a\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
-    /add\s+project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
-    /setup\s+(?:a\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
-    /start\s+(?:a\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
-    /project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?\s+(?:for|with|board)/i,
-    /create\s+[\"']?([a-z0-9_-]+)[\"']?\s+(?:project\s+)?board/i,  // "create X project board" or "create X board"
-    /create\s+[\"']?([a-z0-9_-]+)[\"']?\s+project/i,         // "create X project"
+    // "create [a] [new] project [called] X"
+    /create\s+(?:a\s+)?(?:new\s+)?project\s+(?:called\s+|named\s+|for\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    // "new project [called] X"
+    /new\s+project\s+(?:called\s+|named\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    // "make [a] project [called] X"
+    /make\s+(?:a\s+)?project\s+(?:called\s+|named\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    // "add project [called] X"
+    /add\s+project\s+(?:called\s+|named\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    // "setup/set up [a] project [called] X"
+    /set\s*up\s+(?:a\s+)?project\s+(?:called\s+|named\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    // "start [a] project [called] X"
+    /start\s+(?:a\s+)?project\s+(?:called\s+|named\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
+    // "project [called] X for/with/board"
+    /project\s+(?:called\s+|named\s+)?[\"']?([a-z0-9_-]+)[\"']?\s+(?:for|with|board)/i,
+    // "create [a/the] X project board" or "create [a/the] X board"
+    /create\s+(?:a\s+|the\s+)?[\"']?([a-z0-9_-]+)[\"']?\s+(?:project\s+)?board/i,
+    // "create [a/the] X project" - but NOT "create a project" (reject articles/stopwords as names)
+    /create\s+(?:a\s+|the\s+)?[\"']?([a-z0-9_-]+)[\"']?\s+project\b/i,
+    // "make [a/the] X project"
+    /make\s+(?:a\s+|the\s+)?[\"']?([a-z0-9_-]+)[\"']?\s+project\b/i,
+    // "set up [a/the] X project"
+    /set\s*up\s+(?:a\s+|the\s+)?[\"']?([a-z0-9_-]+)[\"']?\s+project\b/i,
   ];
 
+  const stopwords = new Set(['a', 'an', 'the', 'my', 'our', 'this', 'that', 'new', 'project', 'board']);
+
   for (const pattern of createProjectPatterns) {
-    const match = text.match(pattern);
+    const match = cleanText.match(pattern);
     if (match) {
-      intent = 'create_project';
-      newProjectName = match[1].toLowerCase().replace(/[^a-z0-9_-]/g, '');
-      return {
-        intent,
-        targetProjects: [],
-        newProjectName,
-        confidence: 0.75,
-        reasoning: 'Pattern matched: create project request'
-      };
+      const candidate = match[1].toLowerCase().replace(/[^a-z0-9_-]/g, '');
+      // Reject stopwords captured as project names (e.g. "create a project")
+      if (candidate && !stopwords.has(candidate)) {
+        intent = 'create_project';
+        newProjectName = candidate;
+        return {
+          intent,
+          targetProjects: [],
+          newProjectName,
+          confidence: 0.75,
+          reasoning: 'Pattern matched: create project request'
+        };
+      }
     }
   }
 
   // Pattern 2: Add feature intents
   const addFeaturePatterns = [
-    /add\s+.+?(?:to\s+(?:the\s+)?project)?\s+@?([a-z0-9_-]+)/i,  // "add X to @project" or "add X to the project @project"
-    /for\s+@?([a-z0-9_-]+),?\s+(?:add|create|implement|build)/i,
-    /@?([a-z0-9_-]+)\s+(?:should|needs|requires)\s+/i,
-    /feature\s+(?:request\s+)?(?:for\s+)?@?([a-z0-9_-]+)/i,
-    /(?:implement|build|make)\s+.+?\s+for\s+@?([a-z0-9_-]+)/i,
+    /(?:add|create|implement|build|make)\s+.+?\s+(?:to|for|on)\s+@([a-z0-9_-]+)/i,  // "add X to @project"
+    /for\s+@([a-z0-9_-]+),?\s+(?:add|create|implement|build)/i,                      // "for @project, add X"
+    /@([a-z0-9_-]+)\s+(?:should|needs|requires|could use)\s+/i,                       // "@project should have X"
+    /feature\s+(?:request\s+)?(?:for\s+)?@([a-z0-9_-]+)/i,                            // "feature request for @project"
+    /(?:implement|build|make)\s+.+?\s+for\s+@([a-z0-9_-]+)/i,                         // "build X for @project"
   ];
 
   for (const pattern of addFeaturePatterns) {
-    const match = text.match(pattern);
+    const match = cleanText.match(pattern);
     if (match) {
       const potentialProject = match[1].toLowerCase();
       // Check if it's a known project or was mentioned
@@ -123,7 +144,7 @@ function detectIntentByPattern(text: string, allKnownProjects: string[]): Detect
         return {
           intent,
           targetProjects,
-          confidence: 0.75,  // Increased confidence
+          confidence: 0.75,
           reasoning: 'Pattern matched: add feature request'
         };
       }
@@ -144,7 +165,7 @@ function detectIntentByPattern(text: string, allKnownProjects: string[]): Detect
   }
 
   // Pattern 4: Generic create project detection (no specific name)
-  if (/\b(create|new|make|add|setup|start)\s+project\b/i.test(lowerText)) {
+  if (/\b(create|new|make|add|setup|set\s+up|start)\s+(?:a\s+)?(?:new\s+)?project\b/i.test(lowerText)) {
     return {
       intent: 'create_project',
       targetProjects: [],
@@ -179,52 +200,36 @@ export async function detectIntent(text: string, allKnownProjects: string[]): Pr
   // SECOND: If pattern matching is uncertain, use LLM for smarter understanding
   console.log('[Intent] Pattern confidence low, using LLM for better understanding');
 
-  const prompt = `You are @roadmapr, a Farcaster bot that manages project roadmaps.
+  // Strip @roadmapr from text before sending to LLM to reduce noise
+  const cleanedText = text.replace(/@roadmapr\b/gi, '').replace(/\s+/g, ' ').trim();
+
+  const prompt = `You are a Farcaster bot intent classifier. Analyze the user's message and determine their intent.
 
 Known projects: ${projectList || 'none yet'}
 
-CONVERSATION:
-${text}
+USER MESSAGE:
+${cleanedText}
 
-TASK: Detect what the user wants to do.
+INTENTS:
+1. "create_project" - User wants to CREATE A NEW PROJECT. Extract the project name.
+2. "add_feature" - User wants to ADD/REQUEST a feature for an existing project.
+3. "unknown" - Anything else.
 
-INTENT OPTIONS:
-1. "create_project" - User wants to CREATE A NEW PROJECT and mentions a project name
-2. "add_feature" - User wants to ADD a feature to an existing project
-3. "unknown" - Anything else (providing setup info, unclear request, etc.)
+IMPORTANT RULES:
+- @roadmapr is the bot, NEVER a project name
+- Words like "alert", "project", "board", "new" are NEVER project names
+- The project name is the unique identifier the user chose (e.g. "Castoors", "base", "degenswap")
+- If the user mentions a known project, it's likely add_feature
+- If no known project is mentioned and user wants to create something new, it's create_project
 
-KEYWORDS FOR create_project:
-- "create project", "new project", "make project", "add project", "setup project"
-- "create X board", "make X project"
-- Any phrase asking to START a new project
-
-KEYWORDS FOR add_feature:
-- "add feature", "implement", "fix bug", "add X to @project"
-
-RULES:
-- "create Castooors project board" = create_project with name "Castooors"
-- "add dark mode to @base" = add_feature for "base"
-- If user says "im the owner" or "use X token" WITHOUT mentioning a new project = unknown (they're providing setup info)
-- @roadmapr is the bot, not a project
-
-Return JSON:
-{
-  "intent": "create_project" | "add_feature" | "unknown",
-  "targetProjects": ["handle1"],
-  "newProjectName": "Castoors",
-  "confidence": 0.9,
-  "reasoning": "why"
-}
+Return ONLY valid JSON:
+{"intent": "create_project", "targetProjects": [], "newProjectName": "the-name", "confidence": 0.9, "reasoning": "why"}
 
 Examples:
-"yo @roadmapr create Castooors project board with me as admin"
-→ {"intent": "create_project", "targetProjects": [], "newProjectName": "Castoors", "confidence": 0.95, "reasoning": "User explicitly wants to create Castooors project"}
-
-"im the owner, use $ROAD token"
-→ {"intent": "unknown", "targetProjects": [], "confidence": 0.7, "reasoning": "User providing setup info, no project name mentioned"}
-
-"add dark mode to @base"
-→ {"intent": "add_feature", "targetProjects": ["base"], "confidence": 0.95, "reasoning": "User wants to add feature to base project"}
+"create Castoors project" → {"intent": "create_project", "targetProjects": [], "newProjectName": "Castoors", "confidence": 0.95, "reasoning": "wants to create Castoors project"}
+"add dark mode to @base" → {"intent": "add_feature", "targetProjects": ["base"], "confidence": 0.95, "reasoning": "wants dark mode for base"}
+"yo can you set up a degenswap board" → {"intent": "create_project", "targetProjects": [], "newProjectName": "degenswap", "confidence": 0.9, "reasoning": "wants to create degenswap project"}
+"@base needs better search" → {"intent": "add_feature", "targetProjects": ["base"], "confidence": 0.9, "reasoning": "requesting search feature for base"}
 
 Analyze now:`;
 

@@ -66,7 +66,7 @@ export async function processWebhook(webhookData: WebhookData) {
 
   // Check if this is a reply to the bot itself
   const BOT_FID = parseInt(process.env.ROADMAPR_BOT_FID || '0');
-  const isReplyToBot = parent_hash && await isReplyToBotCast(parent_hash, BOT_FID);
+  const isReplyToBot = parent_hash && await isReplyToBotCast(parent_hash, BOT_FID, 'roadmapr');
 
   // Ignore ALL bot's own casts (prevent loops) - regardless of reply status
   if (author_fid === BOT_FID) {
@@ -161,9 +161,93 @@ export async function processWebhook(webhookData: WebhookData) {
 
   console.log(`[Processor] Context length: ${fullContext.length} chars (${contextCastCount} casts)`);
 
-  // Use LLM-based intent detection FIRST for smarter understanding (before any other logic)
+  // PRIORITY: If replying to the bot, check for project setup info FIRST
+  // This prevents re-detecting "create_project" from old thread context
+  if (isReplyToBot) {
+    console.log(`[Processor] Reply to bot - checking for setup info first`);
+    const setupInfo = parseProjectSetupReply(currentCastText);
+
+    // Check if project handle is provided in the reply or extract from thread
+    let projectHandle: string | null = setupInfo.project || null;
+    if (!projectHandle) {
+      projectHandle = extractProjectHandleFromThreadContext(
+        await getCastThread(parent_hash)
+      );
+    }
+
+    if (setupInfo.owner && projectHandle) {
+      console.log(`[Processor] Project setup reply detected: project=@${projectHandle}, owner=${setupInfo.owner}, token=${setupInfo.token || 'clanker'}`);
+      console.log(`[Processor] Creating project: @${projectHandle}`);
+
+      // Handle "owner: me" / "im the owner" - use the replying user's FID
+      let ownerInput = setupInfo.owner;
+      if (ownerInput === 'me') {
+        ownerInput = String(author_fid);
+        console.log(`[Processor] Owner is "me" - using author FID: ${author_fid}`);
+      }
+
+      // Parse owner (resolve @username or FID)
+      const parsedOwner = await parseOwner(ownerInput, BOT_FID);
+      if (!parsedOwner) {
+        await logBotMention(cast_hash, author_fid, parent_hash, {
+          error: `Owner not found: ${setupInfo.owner}`
+        });
+        await postReply(cast_hash, BotVoice.ownerNotFound(setupInfo.owner));
+        return;
+      }
+
+      // Get bio from project's Farcaster profile
+      const bioResult = await getProjectBio(projectHandle);
+      console.log(`[Processor] Bio for @${projectHandle}: ${bioResult ? 'found' : 'not found'}`);
+
+      // Determine voting type and token address
+      const tokenInput = (setupInfo.token || 'clanker').toLowerCase();
+      const voting_type: 'score' | 'token' = tokenInput === 'clanker' ? 'token' : 'score';
+      const isClanker = tokenInput === 'clanker';
+      const token_address = isClanker ? undefined : setupInfo.token;
+
+      // Create project
+      try {
+        const project = await createProject({
+          name: projectHandle.charAt(0).toUpperCase() + projectHandle.slice(1),
+          project_handle: projectHandle,
+          owner_fid: parsedOwner.fid,
+          ...(bioResult && { bio: bioResult }),
+          voting_type,
+          ...(token_address && { token_address }),
+          created_by_bot: true
+        });
+
+        console.log(`[Processor] Project created: ${project.id} (@${projectHandle})`);
+
+        await logBotMention(cast_hash, author_fid, parent_hash, {
+          project_created: project.id,
+          project_handle: projectHandle,
+          owner_fid: parsedOwner.fid,
+          voting_type
+        });
+
+        await postReply(cast_hash, BotVoice.projectCreated(project, parsedOwner.username));
+        return;
+      } catch (err) {
+        console.error(`[Processor] Failed to create project:`, err);
+        await logBotMention(cast_hash, author_fid, parent_hash, {
+          error: `Project creation failed: ${(err as Error).message}`
+        });
+        await postReply(cast_hash, BotVoice.genericError('Failed to create project'));
+        return;
+      }
+    }
+    // If no setup info found, fall through to normal intent detection
+    console.log(`[Processor] No setup info found in reply, falling through to intent detection`);
+  }
+
+  // Use LLM-based intent detection for understanding what the user wants
   const allKnownProjects = (await getAllProjects()).map((p: { project_handle: string }) => p.project_handle);
-  const intent = await detectIntent(fullContext, allKnownProjects);
+  // For intent detection, use the current cast text (the user's actual command), not the full thread
+  // This prevents old messages in thread from confusing the intent
+  const intentText = isReplyToBot ? currentCastText : fullContext;
+  const intent = await detectIntent(intentText, allKnownProjects);
 
   console.log(`[Intent] Detected: ${intent.intent} (confidence: ${intent.confidence})`);
   console.log(`[Intent] Target projects: ${intent.targetProjects.join(',') || 'none'}`);
@@ -172,7 +256,7 @@ export async function processWebhook(webhookData: WebhookData) {
     console.log(`[Intent] Reasoning: ${intent.reasoning}`);
   }
 
-  // Handle create_project intent - takes priority over everything else
+  // Handle create_project intent
   if (intent.intent === 'create_project' && intent.newProjectName) {
     let projectHandle = intent.newProjectName.toLowerCase();
 
@@ -186,8 +270,6 @@ export async function processWebhook(webhookData: WebhookData) {
       }
     }
 
-    const projectName = projectHandle.charAt(0).toUpperCase() + projectHandle.slice(1);
-
     await logBotMention(cast_hash, author_fid, parent_hash, {
       detected_projects: [projectHandle],
       error: 'Awaiting project setup'
@@ -195,89 +277,6 @@ export async function processWebhook(webhookData: WebhookData) {
 
     await postReply(cast_hash, BotVoice.newProjectIntentDetected(projectHandle, author_fid));
     return;
-  }
-
-  // Check if this is a project setup reply (user providing owner/token info)
-  // Only runs if intent was NOT create_project
-  if (isReplyToBot) {
-    const currentCastText = await getCastText(cast_hash);
-    const setupInfo = parseProjectSetupReply(currentCastText);
-
-    // Check if project handle is provided in the reply or extract from thread
-    let projectHandle: string | null = setupInfo.project || null;
-    if (!projectHandle) {
-      // Extract project handle from conversation context (look for "NEW PROJECT ALERT! @handle")
-      projectHandle = extractProjectHandleFromThreadContext(
-        await getCastThread(parent_hash)
-      );
-    }
-
-    if (setupInfo.owner && projectHandle) {
-      console.log(`[Processor] Project setup reply detected: project=@${projectHandle}, owner=${setupInfo.owner}, token=${setupInfo.token || 'clanker'}`);
-
-      if (projectHandle) {
-        console.log(`[Processor] Creating project: @${projectHandle}`);
-
-        // Parse owner (resolve @username or FID)
-        const parsedOwner = await parseOwner(setupInfo.owner, BOT_FID);
-        if (!parsedOwner) {
-          await logBotMention(cast_hash, author_fid, parent_hash, {
-            error: `Owner not found: ${setupInfo.owner}`
-          });
-          await postReply(cast_hash, BotVoice.ownerNotFound(setupInfo.owner));
-          return;
-        }
-
-        // Get bio from project's Farcaster profile
-        const bioResult = await getProjectBio(projectHandle);
-        console.log(`[Processor] Bio for @${projectHandle}: ${bioResult ? 'found' : 'not found'}`);
-
-        // Determine voting type and token address
-        const tokenInput = (setupInfo.token || 'clanker').toLowerCase();
-        const voting_type: 'score' | 'token' = tokenInput === 'clanker' ? 'token' : 'score';
-        const isClanker = tokenInput === 'clanker';
-        const token_address = isClanker ? undefined : setupInfo.token;
-
-        // Create project
-        try {
-          const project = await createProject({
-            name: projectHandle.charAt(0).toUpperCase() + projectHandle.slice(1),
-            project_handle: projectHandle,
-            owner_fid: parsedOwner.fid,
-            ...(bioResult && { bio: bioResult }),
-            voting_type,
-            ...(token_address && { token_address }),
-            created_by_bot: true
-          });
-
-          console.log(`[Processor] Project created: ${project.id} (@${projectHandle})`);
-
-          await logBotMention(cast_hash, author_fid, parent_hash, {
-            project_created: project.id,
-            project_handle: projectHandle,
-            owner_fid: parsedOwner.fid,
-            voting_type
-          });
-
-          await postReply(cast_hash, BotVoice.projectCreated(project, parsedOwner.username));
-          return;
-        } catch (err) {
-          console.error(`[Processor] Failed to create project:`, err);
-          await logBotMention(cast_hash, author_fid, parent_hash, {
-            error: `Project creation failed: ${(err as Error).message}`
-          });
-          await postReply(cast_hash, BotVoice.genericError('Failed to create project'));
-          return;
-        }
-      } else {
-        console.log(`[Processor] Could not extract project handle from conversation`);
-        await logBotMention(cast_hash, author_fid, parent_hash, {
-          error: 'Could not determine project handle from conversation'
-        });
-        await postReply(cast_hash, BotVoice.couldNotDetermineProject());
-        return;
-      }
-    }
   }
 
   // Get target projects from intent detection
@@ -543,11 +542,13 @@ function formatStandaloneCast(
 }
 
 /**
- * Check if a cast is authored by the bot
+ * Check if a cast is authored by the bot (by FID or username)
  */
-async function isReplyToBotCast(castHash: string, botFid: number): Promise<boolean> {
+async function isReplyToBotCast(castHash: string, botFid: number, botUsername?: string): Promise<boolean> {
   const cast = await getCast(castHash);
-  return cast?.author?.fid === botFid;
+  if (!cast?.author) return false;
+  return cast.author.fid === botFid ||
+    (botUsername != null && cast.author.username?.toLowerCase() === botUsername.toLowerCase());
 }
 
 /**
