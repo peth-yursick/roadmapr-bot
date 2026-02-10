@@ -21,11 +21,10 @@ async function callGLMAPI(endpoint: string, body: any) {
 
 // Try multiple models in order of preference
 const MODELS_TO_TRY = [
-  'glm-4-flashx',
-  'glm-4-flash',
-  'glm-4-plus',
-  'glm-4',
-  'glm-3-turbo',
+  'glm-4.7',      // Latest model
+  'glm-4.6',
+  'glm-4.5',
+  'glm-4.5-air',
 ];
 
 export interface DetectedIntent {

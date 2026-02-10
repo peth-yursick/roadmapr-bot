@@ -55,7 +55,7 @@ Return JSON array (or empty array if no actionable features):`;
 
   try {
     const response = await callGLMAPI('chat/completions', {
-      model: 'glm-4-flash',
+      model: 'glm-4.7',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
     }) as { choices: Array<{ message: { content: string } }> };
