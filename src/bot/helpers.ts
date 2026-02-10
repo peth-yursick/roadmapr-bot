@@ -65,6 +65,7 @@ export async function parseOwner(ownerInput: string, botFid?: number): Promise<P
  * "Project: @roadmapr, Owner: @peth, Token: clanker"
  * "project is @roadmapr, owner is @roadmapr, will define token later"
  * "Owner: 12345, Token: 0x1234..."
+ * "im the owner, token is $ROAD token address 0x..."
  */
 export function parseProjectSetupReply(text: string): {
   project?: string;
@@ -72,6 +73,7 @@ export function parseProjectSetupReply(text: string): {
   token?: string;
 } {
   const result: { project?: string; owner?: string; token?: string } = {};
+  const lowerText = text.toLowerCase();
 
   // Extract project handle (supports "project is @handle", "project: @handle", etc.)
   const projectMatch = text.match(/project[:\s]+is[:\s]+@(\w+)|project[:\s]+@(\w+)/i);
@@ -79,20 +81,43 @@ export function parseProjectSetupReply(text: string): {
     result.project = projectMatch[1] || projectMatch[2];
   }
 
-  // Extract owner
+  // Extract owner - more flexible patterns
+  // Pattern 1: "Owner: X" or "owner is X"
   const ownerMatch = text.match(/owner[:\s]+is[:\s]+(@?\w+|@?\d+)|owner[:\s]+(@?\w+|@?\d+)/i);
   if (ownerMatch) {
     result.owner = ownerMatch[1] || ownerMatch[2];
     result.owner = result.owner.trim();
   }
+  // Pattern 2: "i'm the owner" or "im owner" or "i am owner" → use "me" as marker
+  else if (/\bi['\s]?m\s+(the\s+)?owner\b|\bi\s+am\s+(the\s+)?owner\b|\bowner\s+(is\s+)?me\b/i.test(lowerText)) {
+    result.owner = 'me'; // Special marker to use the author's FID
+  }
 
-  // Extract token
-  const tokenMatch = text.match(/token[:\s]+is[:\s]+(\w+)|token[:\s]+(\w+)|will define token later/i);
+  // Extract token - handle both names and addresses
+  // Pattern 1: "token: X" or "token is X"
+  const tokenMatch = text.match(/token[:\s]+is[:\s]+[^\s,]+|token[:\s]+[^\s,]+|will define token later/i);
   if (tokenMatch) {
-    result.token = tokenMatch[1] || tokenMatch[2] || "clanker";
-    if (result.token) {
-      result.token = result.token.trim();
+    let tokenValue = tokenMatch[0].replace(/token[:\s]+is[:\s]+/i, '').replace(/token[:\s]+/i, '').trim();
+    // Handle "will define token later"
+    if (tokenValue === 'will define token later') {
+      result.token = 'clanker';
+    } else if (tokenValue) {
+      result.token = tokenValue;
     }
+  }
+  // Pattern 2: Extract token address (0x...) from natural language
+  const addressMatch = text.match(/0x[a-fA-F0-9]{40}/);
+  if (addressMatch && !result.token) {
+    result.token = addressMatch[0];
+  }
+  // Pattern 3: Token name like $ROAD, "clanker", etc.
+  const nameMatch = text.match(/\$([a-zA-Z]+)/);
+  if (nameMatch && !result.token) {
+    result.token = nameMatch[1]; // Store the token symbol (could be looked up later)
+  }
+  // Default to clanker if nothing specified but user is setting up token voting
+  if (!result.token && /\$|token|0x[a-fA-F0-9]/i.test(text)) {
+    result.token = 'clanker';
   }
 
   return result;

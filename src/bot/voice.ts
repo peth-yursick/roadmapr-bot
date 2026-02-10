@@ -4,6 +4,84 @@
  * Tone: Playful, dramatic, helpful, slightly chaotic
  */
 
+// OpenAI API for dynamic responses
+async function callOpenAI(prompt: string): Promise<string | null> {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.8,
+        max_tokens: 300,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('[Voice] OpenAI error:', response.status);
+      return null;
+    }
+
+    const data = await response.json() as { choices: Array<{ message: { content: string } }> };
+    return data.choices[0]?.message?.content || null;
+  } catch (err) {
+    console.error('[Voice] OpenAI fetch error:', err);
+    return null;
+  }
+}
+
+/**
+ * Generate a contextual response using LLM
+ * Falls back to template if LLM unavailable
+ */
+export async function generateDynamicResponse(
+  context: string,
+  responseType: 'success' | 'error' | 'question' | 'info',
+  fallbackTemplate: () => string
+): Promise<string> {
+  const toneInstructions = {
+    success: 'Be excited and celebratory, use emojis',
+    error: 'Be apologetic but playful, suggest solutions',
+    question: 'Be helpful and clear, guide them to answer',
+    info: 'Be informative but keep it fun and brief'
+  };
+
+  const prompt = `You are Roadmapr, a quirky Farcaster bot with an enthusiastic personality (think Claptrap from Borderlands).
+
+CONTEXT: ${context}
+
+Tone: ${toneInstructions[responseType]}
+
+Guidelines:
+- Keep responses under 150 words
+- Use relevant emojis but don't overdo it
+- Be conversational and fun
+- For success: celebrate with them
+- For errors: apologize but keep it light
+- For questions: be clear and helpful
+- Stay in character as a helpful but slightly chaotic AI assistant
+
+Generate a response for this ${responseType} situation:`;
+
+  const llmResponse = await callOpenAI(prompt);
+  if (llmResponse) {
+    console.log('[Voice] Using LLM-generated response');
+    return llmResponse.trim();
+  }
+
+  // Fallback to template
+  console.log('[Voice] LLM unavailable, using template');
+  return fallbackTemplate();
+}
+
 // Random enthusiasm markers
 const enthusiasm = [
   "WOAH THERE!",
