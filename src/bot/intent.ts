@@ -21,9 +21,11 @@ async function callGLMAPI(endpoint: string, body: any) {
 
 // Try multiple models in order of preference
 const MODELS_TO_TRY = [
-  'glm-4-flash',   // Fastest, cheapest
-  'glm-4',         // Standard model
-  'glm-3-turbo',   // Fallback to older model
+  'glm-4-flashx',
+  'glm-4-flash',
+  'glm-4-plus',
+  'glm-4',
+  'chatglm3-6b',   // Older model as fallback
 ];
 
 export interface DetectedIntent {
@@ -121,8 +123,14 @@ Return JSON only:`;
         reasoning: parsed.reasoning
       };
     } catch (modelErr) {
-      console.error(`[Intent] Model ${model} failed:`, modelErr instanceof Error ? modelErr.message : modelErr);
-      // Continue to next model
+      const errorMsg = modelErr instanceof Error ? modelErr.message : String(modelErr);
+      console.error(`[Intent] Model ${model} failed: ${errorMsg}`);
+      // If it's a 400 error with "model does not exist", try next model
+      if (errorMsg.includes('1211') || errorMsg.includes('模型不存在')) {
+        console.log(`[Intent] Model ${model} not available, trying next...`);
+        continue;
+      }
+      // For other errors, also try next model
       continue;
     }
   }
