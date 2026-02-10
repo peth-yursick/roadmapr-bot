@@ -184,8 +184,19 @@ export async function processWebhook(webhookData: WebhookData) {
 
   // Handle create_project intent - takes priority over everything else
   if (intent.intent === 'create_project' && intent.newProjectName) {
-    const projectName = intent.newProjectName.charAt(0).toUpperCase() + intent.newProjectName.slice(1);
-    const projectHandle = intent.newProjectName.toLowerCase();
+    let projectHandle = intent.newProjectName.toLowerCase();
+
+    // If LLM returned "unknown", try to extract from conversation context
+    if (projectHandle === 'unknown' || projectHandle === '<project name>') {
+      const thread = await getCastThread(parent_hash);
+      const extractedHandle = extractProjectHandleFromThreadContext(thread);
+      if (extractedHandle) {
+        projectHandle = extractedHandle;
+        console.log(`[Processor] Extracted project handle from context: ${projectHandle}`);
+      }
+    }
+
+    const projectName = projectHandle.charAt(0).toUpperCase() + projectHandle.slice(1);
 
     await logBotMention(cast_hash, author_fid, parent_hash, {
       detected_projects: [projectHandle],
@@ -561,9 +572,41 @@ async function getCastText(castHash: string): Promise<string> {
  * Extract project handle from thread context (looks for "NEW PROJECT ALERT! @handle")
  */
 function extractProjectHandleFromThreadContext(thread: Array<{ text: string }>): string | null {
-  // Look through the thread for the "NEW PROJECT ALERT!" message
+  // First, try to find the original user request with project name
+  // Look for patterns like "create project called X", "new project X", etc.
   for (const cast of thread) {
-    if (cast.text.includes('NEW PROJECT ALERT!')) {
+    const text = cast.text.toLowerCase();
+
+    // Skip bot's own "NEW PROJECT ALERT!" messages
+    if (text.includes('new project alert!') || text.includes('let\'s get this set up')) {
+      continue;
+    }
+
+    // Look for project creation patterns
+    const patterns = [
+      /create(?:\s+a)?(?:\s+new)?\s+project\s+(?:called\s+)?[@]?(\w+)/i,
+      /new\s+project\s+(?:called\s+)?[@]?(\w+)/i,
+      /make\s+(?:a\s+)?project\s+(?:called\s+)?[@]?(\w+)/i,
+      /add\s+project\s+(?:called\s+)?[@]?(\w+)/i,
+      /setup\s+(?:a\s+)?project\s+(?:called\s+)?[@]?(\w+)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = cast.text.match(pattern);
+      if (match) {
+        const handle = match[1].toLowerCase().replace(/[^a-z0-9_-]/g, '');
+        if (handle && handle !== 'roadmapr') {
+          console.log(`[Processor] Extracted project handle "${handle}" from conversation context`);
+          return handle;
+        }
+      }
+    }
+  }
+
+  // Fallback: look through the thread for the "NEW PROJECT ALERT!" message
+  // (but skip if it says @unknown)
+  for (const cast of thread) {
+    if (cast.text.includes('NEW PROJECT ALERT!') && !cast.text.includes('@unknown')) {
       // Extract the @handle from the message
       const match = cast.text.match(/@(\w+)/);
       if (match) {
@@ -571,5 +614,6 @@ function extractProjectHandleFromThreadContext(thread: Array<{ text: string }>):
       }
     }
   }
+
   return null;
 }

@@ -166,50 +166,65 @@ function detectIntentByPattern(text: string, allKnownProjects: string[]): Detect
 export async function detectIntent(text: string, allKnownProjects: string[]): Promise<DetectedIntent> {
   const projectList = allKnownProjects.map(p => `@${p}`).join(', ');
 
-  const prompt = `Analyze this message to a Farcaster bot called @roadmapr.
+  const prompt = `You are analyzing a conversation with @roadmapr, a Farcaster bot.
 
 Known projects on the platform: ${projectList || 'none yet'}
 
-The user is replying to @roadmapr. Determine:
-1. What they want to do
-2. Which existing project they're talking about (if any)
-3. If they want to create a new project
+CONVERSATION TO ANALYZE:
+${text}
 
-IMPORTANT CONTEXT RULES:
-- @roadmapr is the bot being addressed, NOT a project target
-- "create a project", "new project", "add project" = create_project intent
-- "add feature", "bug", "implement", "request" = add_feature intent
-- If they mention a project name that doesn't exist in known projects, it might be a new project name
+CRITICAL CONTEXT UNDERSTANDING:
+1. This may be a MULTI-TURN conversation separated by "---"
+2. The bot may have asked for project setup info (owner, token type)
+3. The user may be REPLYING to provide that info
+4. Look for project names EARLIER in the conversation if not in the latest message
+
+INTENT TYPES:
+1. "create_project" - User wants to START a new project (mentions project name)
+2. "add_feature" - User wants to add a feature to an EXISTING project
+3. "unknown" - Can't determine intent or user is just providing setup info
+
+IMPORTANT RULES:
+- @roadmapr is the bot, NOT a project target
+- If user says "im the owner" or provides token info WITHOUT a project name, this is SETUP INFO for an EXISTING conversation → return "unknown" intent (the processor will handle it)
+- If user mentions a NEW project name that doesn't exist in known projects, return "create_project" with that name
+- Extract project names from EARLIER in the conversation if not in the latest message
 
 Return JSON ONLY:
 {
   "intent": "create_project" | "add_feature" | "unknown",
   "targetProjects": ["handle1", "handle2"],  // existing projects they're referencing
-  "newProjectName": "Castoors",  // only if creating new project
+  "newProjectName": "Castoors",  // only if creating NEW project
   "confidence": 0.9,  // 0-1
   "reasoning": "brief explanation"
 }
 
 Examples:
-Input: "create a new project called Castoors with me as owner"
-Output: {"intent": "create_project", "targetProjects": [], "newProjectName": "Castoors", "confidence": 0.95, "reasoning": "User explicitly wants to create a new project named Castoors"}
+Example 1 - Initial project creation:
+Input: "yo @roadmapr create a new project called Castoors"
+Output: {"intent": "create_project", "targetProjects": [], "newProjectName": "Castoors", "confidence": 0.95, "reasoning": "User explicitly requests to create a new project named Castoors"}
 
+Example 2 - Providing setup info (should return unknown):
+Input: "---"
+"yo @roadmapr create Castoors"
+"---"
+"🆕 NEW PROJECT ALERT! Let's get this set up! Reply with owner and token..."
+"---"
+"im the owner, use $ROAD token"
+Output: {"intent": "unknown", "targetProjects": [], "confidence": 0.8, "reasoning": "User is providing setup info for Castoors project that was already mentioned. No new project creation requested."}
+
+Example 3 - Feature request:
 Input: "add dark mode to @base"
-Output: {"intent": "add_feature", "targetProjects": ["base"], "confidence": 0.95, "reasoning": "User wants to add a feature to the base project"}
+Output: {"intent": "add_feature", "targetProjects": ["base"], "confidence": 0.95, "reasoning": "User wants to add dark mode feature to the base project"}
 
-Input: "@roadmapr can you help me add a feature?"
-Output: {"intent": "unknown", "targetProjects": [], "confidence": 0.3, "reasoning": "User addressed the bot but didn't specify which project"}
+Example 4 - Extract project name from conversation:
+Input: "---"
+"yo @roadmapr create Warpcast"
+"---"
+"let's do it, I'm the owner"
+Output: {"intent": "unknown", "targetProjects": [], "confidence": 0.7, "reasoning": "Project Warpcast was mentioned earlier, user is now providing setup info. Not a new project request."}
 
-Input: "for @farcaster add account abstraction"
-Output: {"intent": "add_feature", "targetProjects": ["farcaster"], "confidence": 0.95, "reasoning": "User wants to add account abstraction feature to farcaster project"}
-
-Input: "yo @roadmapr create a project called Warpcast"
-Output: {"intent": "create_project", "targetProjects": [], "newProjectName": "Warpcast", "confidence": 0.95, "reasoning": "User explicitly asks to create a new project called Warpcast"}
-
-Now analyze:
-${text}
-
-Return JSON only:`;
+Now analyze the conversation and return JSON only:`;
 
   // Try OpenAI first (primary)
   if (process.env.OPENAI_API_KEY) {
