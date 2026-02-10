@@ -168,6 +168,17 @@ function detectIntentByPattern(text: string, allKnownProjects: string[]): Detect
 export async function detectIntent(text: string, allKnownProjects: string[]): Promise<DetectedIntent> {
   const projectList = allKnownProjects.map(p => `@${p}`).join(', ');
 
+  // FIRST: Try pattern matching for clear, unambiguous cases
+  // This catches obvious intents without needing LLM API calls
+  const patternResult = detectIntentByPattern(text, allKnownProjects);
+  if (patternResult.confidence >= 0.7) {
+    console.log('[Intent] Pattern matched with high confidence, skipping LLM');
+    return patternResult;
+  }
+
+  // SECOND: If pattern matching is uncertain, use LLM for smarter understanding
+  console.log('[Intent] Pattern confidence low, using LLM for better understanding');
+
   const prompt = `You are @roadmapr, a Farcaster bot that manages project roadmaps.
 
 Known projects: ${projectList || 'none yet'}
@@ -311,7 +322,7 @@ Analyze now:`;
 
   // All models failed - use pattern matching fallback
   console.log('[Intent] All LLM providers failed, using pattern matching fallback');
-  const patternResult = detectIntentByPattern(text, allKnownProjects);
-  console.log(`[Intent] Pattern result: ${patternResult.intent} (confidence: ${patternResult.confidence})`);
-  return patternResult;
+  const fallbackPatternResult = detectIntentByPattern(text, allKnownProjects);
+  console.log(`[Intent] Pattern result: ${fallbackPatternResult.intent} (confidence: ${fallbackPatternResult.confidence})`);
+  return fallbackPatternResult;
 }
