@@ -1,4 +1,23 @@
-// GLM API configuration
+// OpenAI API configuration (primary)
+async function callOpenAI(body: any) {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} ${error}`);
+  }
+
+  return response.json();
+}
+
+// GLM API configuration (fallback)
 const GLM_API_URL = 'https://open.bigmodel.cn/api/paas/v4/';
 
 async function callGLMAPI(endpoint: string, body: any) {
@@ -149,6 +168,42 @@ ${text}
 
 Return JSON array (or empty array if no actionable features):`;
 
+  // Try OpenAI first (primary)
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      console.log('[Extractor] Trying OpenAI GPT-4o-mini...');
+      const response = await callOpenAI({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+      }) as { choices: Array<{ message: { content: string } }> };
+
+      const content = response.choices[0]?.message?.content || '';
+      console.log('[Extractor] OpenAI response received');
+
+      // Extract JSON from response (handle markdown code blocks)
+      let jsonText = content.trim();
+      if (jsonText.startsWith('```json')) {
+        jsonText = jsonText.slice(7);
+      }
+      if (jsonText.startsWith('```')) {
+        jsonText = jsonText.slice(3);
+      }
+      if (jsonText.endsWith('```')) {
+        jsonText = jsonText.slice(0, -3);
+      }
+      jsonText = jsonText.trim();
+
+      const parsed = JSON.parse(jsonText);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (openaiErr) {
+      const errorMsg = openaiErr instanceof Error ? openaiErr.message : String(openaiErr);
+      console.error(`[Extractor] OpenAI failed: ${errorMsg}`);
+    }
+  }
+
+  // Fallback to GLM
+  console.log('[Extractor] OpenAI unavailable, trying GLM...');
   try {
     const response = await callGLMAPI('chat/completions', {
       model: 'glm-4.7',
@@ -173,8 +228,8 @@ Return JSON array (or empty array if no actionable features):`;
 
     const parsed = JSON.parse(jsonText);
     return Array.isArray(parsed) ? parsed : [];
-  } catch (err) {
-    console.error('[Extractor] GLM API error, using pattern matching fallback:', err instanceof Error ? err.message : err);
+  } catch (glmErr) {
+    console.error('[Extractor] GLM API error, using pattern matching fallback:', glmErr instanceof Error ? glmErr.message : glmErr);
     return extractFeaturesByPattern(text);
   }
 }

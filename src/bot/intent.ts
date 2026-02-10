@@ -1,4 +1,23 @@
-// GLM API configuration
+// OpenAI API configuration (primary)
+async function callOpenAI(body: any) {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} ${error}`);
+  }
+
+  return response.json();
+}
+
+// GLM API configuration (fallback)
 const GLM_API_URL = 'https://open.bigmodel.cn/api/paas/v4/';
 
 async function callGLMAPI(endpoint: string, body: any) {
@@ -192,7 +211,50 @@ ${text}
 
 Return JSON only:`;
 
-  // Try models in order, fallback to next if model doesn't exist
+  // Try OpenAI first (primary)
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      console.log('[Intent] Trying OpenAI GPT-4o-mini...');
+      const response = await callOpenAI({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+      }) as { choices: Array<{ message: { content: string } }> };
+
+      const content = response.choices[0]?.message?.content || '';
+      console.log('[Intent] OpenAI response received');
+
+      // Extract JSON from response
+      let jsonText = content.trim();
+      if (jsonText.startsWith('```json')) {
+        jsonText = jsonText.slice(7);
+      }
+      if (jsonText.startsWith('```')) {
+        jsonText = jsonText.slice(3);
+      }
+      if (jsonText.endsWith('```')) {
+        jsonText = jsonText.slice(0, -3);
+      }
+      jsonText = jsonText.trim();
+
+      const parsed = JSON.parse(jsonText);
+
+      // Validate the response
+      return {
+        intent: parsed.intent || 'unknown',
+        targetProjects: Array.isArray(parsed.targetProjects) ? parsed.targetProjects : [],
+        newProjectName: parsed.newProjectName,
+        confidence: parsed.confidence || 0.5,
+        reasoning: parsed.reasoning
+      };
+    } catch (openaiErr) {
+      const errorMsg = openaiErr instanceof Error ? openaiErr.message : String(openaiErr);
+      console.error(`[Intent] OpenAI failed: ${errorMsg}`);
+    }
+  }
+
+  // Fallback to GLM
+  console.log('[Intent] OpenAI unavailable, trying GLM...');
   for (const model of MODELS_TO_TRY) {
     try {
       const response = await callGLMAPI('chat/completions', {
@@ -228,7 +290,7 @@ Return JSON only:`;
       };
     } catch (modelErr) {
       const errorMsg = modelErr instanceof Error ? modelErr.message : String(modelErr);
-      console.error(`[Intent] Model ${model} failed: ${errorMsg}`);
+      console.error(`[Intent] GLM model ${model} failed: ${errorMsg}`);
       // If it's a 400/401/404 error or model not found, try next model
       if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('404') ||
           errorMsg.includes('1211') || errorMsg.includes('模型不存在') || errorMsg.includes('model_not_found')) {
@@ -241,7 +303,7 @@ Return JSON only:`;
   }
 
   // All models failed - use pattern matching fallback
-  console.log('[Intent] All GLM models failed, using pattern matching fallback');
+  console.log('[Intent] All LLM providers failed, using pattern matching fallback');
   const patternResult = detectIntentByPattern(text, allKnownProjects);
   console.log(`[Intent] Pattern result: ${patternResult.intent} (confidence: ${patternResult.confidence})`);
   return patternResult;
