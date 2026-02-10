@@ -84,6 +84,8 @@ function detectIntentByPattern(text: string, allKnownProjects: string[]): Detect
     /setup\s+(?:a\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
     /start\s+(?:a\s+)?project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?/i,
     /project\s+(?:called\s+)?[\"']?([a-z0-9_-]+)[\"']?\s+(?:for|with|board)/i,
+    /create\s+[\"']?([a-z0-9_-]+)[\"']?\s+(?:project\s+)?board/i,  // "create X project board" or "create X board"
+    /create\s+[\"']?([a-z0-9_-]+)[\"']?\s+project/i,         // "create X project"
   ];
 
   for (const pattern of createProjectPatterns) {
@@ -219,6 +221,7 @@ Analyze now:`;
   if (process.env.OPENAI_API_KEY) {
     try {
       console.log('[Intent] Trying OpenAI GPT-4o-mini...');
+      console.log('[Intent] Sending to LLM:', text.substring(0, 200) + '...');
       const response = await callOpenAI({
         model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
@@ -226,7 +229,7 @@ Analyze now:`;
       }) as { choices: Array<{ message: { content: string } }> };
 
       const content = response.choices[0]?.message?.content || '';
-      console.log('[Intent] OpenAI response received');
+      console.log('[Intent] OpenAI response received:', content.substring(0, 150));
 
       // Extract JSON from response
       let jsonText = content.trim();
