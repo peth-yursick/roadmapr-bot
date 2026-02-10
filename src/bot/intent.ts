@@ -105,11 +105,11 @@ function detectIntentByPattern(text: string, allKnownProjects: string[]): Detect
 
   // Pattern 2: Add feature intents
   const addFeaturePatterns = [
-    /add\s+\w+\s+(?:to\s+)?@?([a-z0-9_-]+)/i,
+    /add\s+.+?(?:to\s+(?:the\s+)?project)?\s+@?([a-z0-9_-]+)/i,  // "add X to @project" or "add X to the project @project"
     /for\s+@?([a-z0-9_-]+),?\s+(?:add|create|implement|build)/i,
     /@?([a-z0-9_-]+)\s+(?:should|needs|requires)\s+/i,
     /feature\s+(?:request\s+)?(?:for\s+)?@?([a-z0-9_-]+)/i,
-    /(?:implement|build|make)\s+\w+\s+for\s+@?([a-z0-9_-]+)/i,
+    /(?:implement|build|make)\s+.+?\s+for\s+@?([a-z0-9_-]+)/i,
   ];
 
   for (const pattern of addFeaturePatterns) {
@@ -123,7 +123,7 @@ function detectIntentByPattern(text: string, allKnownProjects: string[]): Detect
         return {
           intent,
           targetProjects,
-          confidence: 0.70,
+          confidence: 0.75,  // Increased confidence
           reasoning: 'Pattern matched: add feature request'
         };
       }
