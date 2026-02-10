@@ -171,7 +171,33 @@ export async function processWebhook(webhookData: WebhookData) {
 
   console.log(`[Processor] Context length: ${fullContext.length} chars (${contextCastCount} casts)`);
 
+  // Use LLM-based intent detection FIRST for smarter understanding (before any other logic)
+  const allKnownProjects = (await getAllProjects()).map((p: { project_handle: string }) => p.project_handle);
+  const intent = await detectIntent(fullContext, allKnownProjects);
+
+  console.log(`[Intent] Detected: ${intent.intent} (confidence: ${intent.confidence})`);
+  console.log(`[Intent] Target projects: ${intent.targetProjects.join(',') || 'none'}`);
+  console.log(`[Intent] New project name: ${intent.newProjectName || 'none'}`);
+  if (intent.reasoning) {
+    console.log(`[Intent] Reasoning: ${intent.reasoning}`);
+  }
+
+  // Handle create_project intent - takes priority over everything else
+  if (intent.intent === 'create_project' && intent.newProjectName) {
+    const projectName = intent.newProjectName.charAt(0).toUpperCase() + intent.newProjectName.slice(1);
+    const projectHandle = intent.newProjectName.toLowerCase();
+
+    await logBotMention(cast_hash, author_fid, parent_hash, {
+      detected_projects: [projectHandle],
+      error: 'Awaiting project setup'
+    });
+
+    await postReply(cast_hash, BotVoice.newProjectIntentDetected(projectHandle, author_fid));
+    return;
+  }
+
   // Check if this is a project setup reply (user providing owner/token info)
+  // Only runs if intent was NOT create_project
   if (isReplyToBot) {
     const currentCastText = await getCastText(cast_hash);
     const setupInfo = parseProjectSetupReply(currentCastText);
@@ -251,31 +277,6 @@ export async function processWebhook(webhookData: WebhookData) {
         return;
       }
     }
-  }
-
-  // Use LLM-based intent detection for smarter understanding
-  const allKnownProjects = (await getAllProjects()).map((p: { project_handle: string }) => p.project_handle);
-  const intent = await detectIntent(fullContext, allKnownProjects);
-
-  console.log(`[Intent] Detected: ${intent.intent} (confidence: ${intent.confidence})`);
-  console.log(`[Intent] Target projects: ${intent.targetProjects.join(',') || 'none'}`);
-  console.log(`[Intent] New project name: ${intent.newProjectName || 'none'}`);
-  if (intent.reasoning) {
-    console.log(`[Intent] Reasoning: ${intent.reasoning}`);
-  }
-
-  // Handle create_project intent
-  if (intent.intent === 'create_project' && intent.newProjectName) {
-    const projectName = intent.newProjectName.charAt(0).toUpperCase() + intent.newProjectName.slice(1);
-    const projectHandle = intent.newProjectName.toLowerCase();
-
-    await logBotMention(cast_hash, author_fid, parent_hash, {
-      detected_projects: [projectHandle],
-      error: 'Awaiting project setup'
-    });
-
-    await postReply(cast_hash, BotVoice.newProjectIntentDetected(projectHandle, author_fid));
-    return;
   }
 
   // Get target projects from intent detection
