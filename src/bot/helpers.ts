@@ -81,42 +81,57 @@ export function parseProjectSetupReply(text: string): {
     result.project = projectMatch[1] || projectMatch[2];
   }
 
-  // Extract owner - more flexible patterns
-  // Pattern 1: "Owner: X" or "owner is X"
-  const ownerMatch = text.match(/owner[:\s]+is[:\s]+(@?\w+|@?\d+)|owner[:\s]+(@?\w+|@?\d+)/i);
-  if (ownerMatch) {
-    result.owner = ownerMatch[1] || ownerMatch[2];
-    result.owner = result.owner.trim();
-  }
-  // Pattern 2: "i'm the owner" or "im owner" or "i am owner" → use "me" as marker
-  else if (/\bi['\s]?m\s+(the\s+)?owner\b|\bi\s+am\s+(the\s+)?owner\b|\bowner\s+(is\s+)?me\b/i.test(lowerText)) {
-    result.owner = 'me'; // Special marker to use the author's FID
-  }
-
-  // Extract token - handle both names and addresses
-  // Pattern 1: "token: X" or "token is X"
-  const tokenMatch = text.match(/token[:\s]+is[:\s]+[^\s,]+|token[:\s]+[^\s,]+|will define token later/i);
-  if (tokenMatch) {
-    let tokenValue = tokenMatch[0].replace(/token[:\s]+is[:\s]+/i, '').replace(/token[:\s]+/i, '').trim();
-    // Handle "will define token later"
-    if (tokenValue === 'will define token later') {
-      result.token = 'clanker';
-    } else if (tokenValue) {
-      result.token = tokenValue;
+  // Extract owner - flexible patterns that allow words in between
+  // Pattern 1: "Owner: @username" or "Owner is @username" or "Owner: 12345"
+  const ownerExplicit = text.match(/owner[:\s]+(?:is[:\s]+)?(@?\w+)/i);
+  if (ownerExplicit) {
+    const val = ownerExplicit[1].trim();
+    // Don't capture noise words as owner
+    if (!['the', 'a', 'an', 'me', 'my', 'is', 'and', 'or', 'of', 'for'].includes(val.toLowerCase())) {
+      result.owner = val;
     }
   }
-  // Pattern 2: Extract token address (0x...) from natural language
+
+  // Pattern 2: Self-identification as owner - very flexible
+  // Matches: "im the owner", "im the project owner", "i am owner", "i'm an owner",
+  // "im owner of this", "the owner is me", "owner is me", etc.
+  if (!result.owner) {
+    const isSelfOwner =
+      /\bi['\u2019]?m\b.{0,20}\bowner\b/i.test(lowerText) ||   // "im [anything short] owner"
+      /\bi\s+am\b.{0,20}\bowner\b/i.test(lowerText) ||          // "i am [anything short] owner"
+      /\bowner\b.{0,10}\b(?:is\s+)?me\b/i.test(lowerText) ||    // "owner [is] me"
+      /\bme\b.{0,10}\bas\s+(?:the\s+)?owner\b/i.test(lowerText); // "me as [the] owner"
+    if (isSelfOwner) {
+      result.owner = 'me';
+    }
+  }
+
+  // Extract token - handle names, addresses, and natural language
+  // Token address (0x...)
   const addressMatch = text.match(/0x[a-fA-F0-9]{40}/);
-  if (addressMatch && !result.token) {
+  if (addressMatch) {
     result.token = addressMatch[0];
   }
-  // Pattern 3: Token name like $ROAD, "clanker", etc.
-  const nameMatch = text.match(/\$([a-zA-Z]+)/);
-  if (nameMatch && !result.token) {
-    result.token = nameMatch[1]; // Store the token symbol (could be looked up later)
+  // $SYMBOL format
+  if (!result.token) {
+    const symbolMatch = text.match(/\$([a-zA-Z]{2,})/);
+    if (symbolMatch) {
+      result.token = symbolMatch[1];
+    }
   }
-  // Default to clanker if nothing specified but user is setting up token voting
-  if (!result.token && /\$|token|0x[a-fA-F0-9]/i.test(text)) {
+  // "token: X" or "token is X" or "token X"
+  if (!result.token) {
+    const tokenMatch = text.match(/token\s+(?:is\s+|:\s*)?(\S+)/i);
+    if (tokenMatch) {
+      let val = tokenMatch[1].replace(/[,&.!?]+$/, ''); // strip trailing punctuation
+      if (val.startsWith('$')) val = val.slice(1);
+      if (val && !['the', 'a', 'is', 'my', 'for'].includes(val.toLowerCase())) {
+        result.token = val;
+      }
+    }
+  }
+  // "clanker" mentioned anywhere
+  if (!result.token && /\bclanker\b/i.test(lowerText)) {
     result.token = 'clanker';
   }
 
