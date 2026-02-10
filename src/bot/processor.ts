@@ -68,8 +68,8 @@ export async function processWebhook(webhookData: WebhookData) {
   const BOT_FID = parseInt(process.env.ROADMAPR_BOT_FID || '0');
   const isReplyToBot = parent_hash && await isReplyToBotCast(parent_hash, BOT_FID);
 
-  // Ignore bot's own casts (prevent loops)
-  if (author_fid === BOT_FID && !isReplyToBot) {
+  // Ignore ALL bot's own casts (prevent loops) - regardless of reply status
+  if (author_fid === BOT_FID) {
     console.log(`[Processor] Ignoring bot's own cast`);
     return;
   }
