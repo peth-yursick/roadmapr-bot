@@ -149,24 +149,14 @@ export async function processWebhook(webhookData: WebhookData) {
     // Normal flow: just parent cast and its thread
     const thread = await getCastThread(parent_hash);
 
-    // If current cast looks like a direct feature request, include it at the start
-    const hasFeatureInCurrentCast = /^(add|create|implement|build|make|we need)/i.test(currentCastText);
-
-    if (hasFeatureInCurrentCast) {
-      console.log(`[Processor] Direct feature request detected in current cast`);
-      fullContext = [
-        currentCastText,
-        parentCast.text,
-        ...thread.map(c => c.text)
-      ].join('\n\n---\n\n');
-      contextCastCount = thread.length + 2;
-    } else {
-      fullContext = [
-        parentCast.text,
-        ...thread.map(c => c.text)
-      ].join('\n\n---\n\n');
-      contextCastCount = thread.length + 1;
-    }
+    // Always include the current cast text - it's the message that mentioned @roadmapr
+    // so it's always relevant for intent detection
+    fullContext = [
+      currentCastText,
+      parentCast.text,
+      ...thread.map(c => c.text)
+    ].join('\n\n---\n\n');
+    contextCastCount = thread.length + 2;
   }
 
   console.log(`[Processor] Context length: ${fullContext.length} chars (${contextCastCount} casts)`);
